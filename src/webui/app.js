@@ -12,7 +12,8 @@ let state = null;
 let revealed = false;
 let accessKeyValue = null;
 const harnessExpansion = createHarnessExpansionState();
-const presetLibrary = { loaded: false, loading: false, query: '', source: '', page: null, selected: null, request: 0 };
+const presetLibrary = { loaded: false, loading: false, query: '', source: '', component: '', page: null, selected: null, request: 0 };
+let activeHarnessId = localStorage.getItem('subchain.harness.active') || 'default';
 
 // ── helpers ───────────────────────────────────────────────────────────
 
@@ -46,7 +47,7 @@ async function copy(text, what = 'Copied') {
     await navigator.clipboard.writeText(text);
     toast(what);
   } catch {
-    toast('Clipboard blocked — select and copy manually', true);
+    toast('Clipboard blocked. Select and copy manually.', true);
   }
 }
 
@@ -85,9 +86,8 @@ function progressClass(pct) {
 function renderOverview() {
   const { totals, stats, providers, cooling } = state;
   $('#statEndpoint').textContent = `${ORIGIN}/v1`;
-  $('#statReady').textContent = totals.candidates;
-  $('#statReadySub').textContent = `of ${totals.links} chain links`;
-  $('#statCandidates').textContent = totals.ready;
+  $('#statReady').textContent = totals.links;
+  $('#statReadySub').textContent = `${totals.ready} provider account${totals.ready === 1 ? '' : 's'} ready`;
   $('#statServed').textContent = stats.served;
   $('#statFailed').textContent = stats.failed ? `${stats.failed} failed` : 'none failed';
 
@@ -108,7 +108,7 @@ function renderOverview() {
           <div class="stat-label">${esc(p.label)}</div>
           <span class="badge ${ok ? 'badge-ok' : 'badge-warn'}"><span class="dot"></span>${ok ? 'ready' : 'no credential'}</span>
         </div>
-        <div class="stat-value" style="font-size:22px">${q ? `${usagePct}%` : (ok ? 'idle' : '—')}</div>
+        <div class="stat-value" style="font-size:22px">${q ? `${usagePct}%` : (ok ? 'idle' : 'not available')}</div>
         <div class="stat-sub">${p.linkCount} model(s) in chain · ${esc(p.jurisdiction)}</div>
         ${usageBar}
       </div>`;
@@ -116,13 +116,13 @@ function renderOverview() {
     .join('');
 
   $('#coolingBox').innerHTML = cooling.length
-    ? `<div class="table-wrap"><table><thead><tr><th>Candidate</th><th>Last error</th><th>Retry in</th></tr></thead><tbody>${cooling
+    ? `<div class="table-wrap"><table><thead><tr><th>Route</th><th>Last error</th><th>Retry in</th></tr></thead><tbody>${cooling
         .map(
           (c) =>
-            `<tr><td class="mono">${esc(c.id)}</td><td style="color:var(--muted-foreground)">${esc(c.lastError || '—')}</td><td class="num">${c.secondsRemaining}s</td></tr>`
+            `<tr><td class="mono">${esc(c.id)}</td><td style="color:var(--muted-foreground)">${esc(c.lastError || 'not reported')}</td><td class="num">${c.secondsRemaining}s</td></tr>`
         )
         .join('')}</tbody></table></div>`
-    : `<div class="card" style="color:var(--muted-foreground);font-size:13px">Nothing cooling off. Every configured candidate is available.</div>`;
+    : `<div class="card" style="color:var(--muted-foreground);font-size:13px">Nothing cooling off. Every configured route is available.</div>`;
 }
 
 // ── providers ────────────────────────────────────────────────────────
@@ -131,54 +131,79 @@ function renderProviders() {
   $('#providerList').innerHTML = state.providers
     .map((p) => {
       const source = p.credentialSource ? p.credentialSource.replace(/-/g, ' ') : null;
-      const credBadge = p.hasCredential
-        ? `<span class="badge badge-ok"><span class="dot"></span>detected${source ? ` · ${esc(source)}` : ''}</span>`
-        : `<span class="badge badge-warn"><span class="dot"></span>missing</span>`;
-
-      const q = p.quota;
-      const quotaInfo = q
-        ? `<div style="margin-top:12px">
-            <div style="font-size:12px;color:var(--muted-foreground)">Usage: ${q.usagePercent}%${q.resetIn ? ` · resets in ${q.resetIn}s` : ''}${q.isExhausted ? ' · EXHAUSTED' : ''}</div>
-            <div class="progress-bar"><div class="progress-fill ${progressClass(q.usagePercent)}" style="width:${q.usagePercent}%"></div></div>
-          </div>`
-        : '';
+      const status = p.health === 'ready' ? 'ready' : p.health === 'error' ? 'error' : p.hasCredential ? 'unchecked' : 'no credential';
+      const statusClass = status === 'ready' ? 'badge-ok' : status === 'error' ? 'badge-err' : 'badge-warn';
+      const quotas = p.quotas || p.quota?.quotas || [];
+      const quotaInfo = quotas.length
+        ? quotas.map((quota) => {
+          const value = quota.usedPercent;
+          return `<div class="quota-row">
+            <div class="row-between"><span>${esc(quota.label || quota.id)}</span><span class="num">${value === null || value === undefined ? 'unknown' : `${value}%`}</span></div>
+            ${value === null || value === undefined ? '' : `<div class="progress-bar"><div class="progress-fill ${progressClass(value)}" style="width:${Math.max(0, Math.min(100, value))}%"></div></div>`}
+            <div class="provider-meta">${quota.status === 'exhausted' ? 'Exhausted' : quota.status === 'available' ? 'Available' : 'Limit is not published'}${quota.windowMinutes ? ` · ${quota.windowMinutes} minute window` : ''}</div>
+          </div>`;
+        }).join('')
+        : '<div class="provider-empty">No quota data yet. Ping checks what the provider publishes.</div>';
+      const observed = p.observedUsage || {};
+      const models = p.models || [];
 
       const siteLink = p.subscriptionUrl
         ? `<a class="btn btn-sm btn-ghost" href="${esc(p.subscriptionUrl)}" target="_blank" rel="noopener noreferrer">${icon.ext} Manage subscription</a>`
         : '';
 
-      return `<div class="card provider">
+      return `<article class="card provider" data-provider="${esc(p.id)}">
         <div class="provider-head">
-          <div>
+          <div class="provider-identity">
             <div class="provider-title">
-              <h2>${esc(p.label)}</h2>
-              ${credBadge}
+              <input class="provider-name" value="${esc(p.name || p.label)}" maxlength="120" aria-label="Subscription account name" data-provider-name />
+              <span class="badge ${statusClass}"><span class="dot"></span>${esc(status)}</span>
               ${p.linkCount ? `<span class="badge badge-sub">${p.linkCount} model(s) in chain</span>` : `<span class="badge">not in chain</span>`}
             </div>
             <div class="provider-meta">
-              <span class="mono">${esc(p.baseUrl)}</span>
-              · ${esc(p.authType)} · ctx ${(p.contextWindow / 1000).toFixed(0)}K · ${esc(p.jurisdiction)}
+              ${esc(p.transport)} · ${esc(p.authType)} · ${esc(p.jurisdiction)}
             </div>
-            <div class="provider-meta">${source ? `Credential source: ${esc(source)}.` : 'No authorized credential source is currently available.'}</div>
+            <div class="provider-meta">${source ? `Authorized through ${esc(source)}.` : p.statusMessage ? esc(p.statusMessage) : 'No authorized credential source is currently available.'}</div>
           </div>
-          <div class="provider-actions">${siteLink}</div>
+          <div class="provider-actions"><button class="btn btn-sm" type="button" data-provider-ping ${p.isPinging ? 'disabled' : ''}>${p.isPinging ? 'Pinging…' : 'Ping'}</button>${siteLink}</div>
         </div>
-        ${quotaInfo}
-      </div>`;
+        <div class="provider-detail-grid">
+          <section><h3>Quota and account status</h3><div class="quota-list">${quotaInfo}</div></section>
+          <section><h3>Observed through SubChain</h3><div class="usage-grid"><span><strong>${Number(observed.requests || 0).toLocaleString()}</strong> requests</span><span><strong>${Number(observed.totalTokens || 0).toLocaleString()}</strong> tokens</span><span><strong>${esc(p.plan || 'unknown')}</strong> plan</span><span><strong>${p.lastPingAt ? new Date(p.lastPingAt).toLocaleString() : 'never'}</strong> last Ping</span></div></section>
+        </div>
+        <section class="provider-models"><div class="row-between"><h3>Available models</h3><span class="provider-meta">${models.length.toLocaleString()} discovered</span></div><div class="model-list">${models.length ? models.map((model) => `<span class="model-chip" title="${esc(model.quotaFamily || '')}">${esc(model.label || model.id)}${model.quotaFamily ? `<small>${esc(model.quotaFamily)}</small>` : ''}</span>`).join('') : '<span class="provider-empty">Ping this subscription to refresh its model catalog.</span>'}</div></section>
+      </article>`;
     })
     .join('');
 }
 
-// ── chains ────────────────────────────────────────────────────────────
+$('#providerList').addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-provider-ping]');
+  if (!button) return;
+  const card = button.closest('[data-provider]');
+  button.disabled = true;
+  button.textContent = 'Pinging…';
+  try {
+    await api(`/admin/providers/${encodeURIComponent(card.dataset.provider)}/ping`, { method: 'POST' });
+    await refresh();
+    toast('Provider status, models, usage, and quota refreshed');
+  } catch (error) {
+    toast(error.message, true);
+    await refresh().catch(() => {});
+  }
+});
 
-const MODEL_OPTIONS = {
-  anthropic: ['claude-sonnet-4-6', 'claude-opus-4-6'],
-  'openai-codex': ['gpt-5', 'gpt-4.1'],
-  kimi: ['kimi-k2.5', 'kimi-for-coding'],
-  google: ['gemini-2.5-pro', 'gemini-2.5-flash'],
-  zhipu: ['glm-5', 'glm-4.7-flash'],
-  sakana: ['fugu-ultra-v1.1', 'fugu'],
-};
+$('#providerList').addEventListener('change', async (event) => {
+  const input = event.target.closest('[data-provider-name]');
+  if (!input) return;
+  const card = input.closest('[data-provider]');
+  try {
+    await api(`/admin/providers/${encodeURIComponent(card.dataset.provider)}`, { method: 'POST', body: JSON.stringify({ name: input.value }) });
+    await refresh();
+    toast('Subscription name saved');
+  } catch (error) { toast(error.message, true); }
+});
+
+// ── chains ────────────────────────────────────────────────────────────
 
 function providerOptions(selected) {
   return state.providers.map((provider) =>
@@ -187,7 +212,7 @@ function providerOptions(selected) {
 }
 
 function modelOptions(provider, selected) {
-  const available = MODEL_OPTIONS[provider] || [];
+  const available = state.providers.find((candidate) => candidate.id === provider)?.models?.map((model) => model.id) || [];
   const models = selected && !available.includes(selected) ? [selected, ...available] : available;
   return models.map((model) => `<option value="${esc(model)}" ${model === selected ? 'selected' : ''}>${esc(model)}</option>`).join('');
 }
@@ -197,9 +222,10 @@ function renderChain() {
   const modelSelect = $('#newChainModel');
   providerSelect.innerHTML = providerOptions(providerSelect.value || state.providers[0]?.id);
   const firstProvider = providerSelect.value || state.providers[0]?.id;
-  const preferredModel = MODEL_OPTIONS[firstProvider]?.includes(modelSelect.value)
+  const liveModels = state.providers.find((provider) => provider.id === firstProvider)?.models?.map((model) => model.id) || [];
+  const preferredModel = liveModels.includes(modelSelect.value)
     ? modelSelect.value
-    : MODEL_OPTIONS[firstProvider]?.[0];
+    : liveModels[0];
   modelSelect.innerHTML = modelOptions(firstProvider, preferredModel);
   $('#chainList').innerHTML = state.chains.map((chain) => {
     const atLimit = chain.links.length >= 5;
@@ -215,7 +241,7 @@ function renderChain() {
       </div>`).join('')}</div>
       <form class="form-row chain-link-form" data-chain-link-form>
         <label class="form-field grow">Provider<select class="input" name="provider">${providerOptions(firstProvider)}</select></label>
-        <label class="form-field grow">Model<select class="input" name="model">${modelOptions(firstProvider, MODEL_OPTIONS[firstProvider]?.[0])}</select></label>
+        <label class="form-field grow">Model<select class="input" name="model">${modelOptions(firstProvider, state.providers.find((provider) => provider.id === firstProvider)?.models?.[0]?.id)}</select></label>
         <button class="btn btn-sm" type="submit" ${atLimit ? 'disabled' : ''}>Add link</button>
       </form>
     </article>`;
@@ -223,7 +249,7 @@ function renderChain() {
 }
 
 $('#newChainProvider').addEventListener('change', (event) => {
-  $('#newChainModel').innerHTML = modelOptions(event.target.value, MODEL_OPTIONS[event.target.value]?.[0]);
+  $('#newChainModel').innerHTML = modelOptions(event.target.value, state.providers.find((provider) => provider.id === event.target.value)?.models?.[0]?.id);
 });
 
 $('#addChainForm').addEventListener('submit', async (event) => {
@@ -242,7 +268,7 @@ $('#chainList').addEventListener('change', (event) => {
   const select = event.target.closest('[name="provider"]');
   if (!select) return;
   const model = $('select[name="model"]', select.closest('form'));
-  model.innerHTML = modelOptions(select.value, MODEL_OPTIONS[select.value]?.[0]);
+  model.innerHTML = modelOptions(select.value, state.providers.find((provider) => provider.id === select.value)?.models?.[0]?.id);
 });
 
 $('#chainList').addEventListener('submit', async (event) => {
@@ -271,30 +297,36 @@ $('#chainList').addEventListener('click', async (event) => {
 
 // ── harness ──────────────────────────────────────────────────────────
 
+const HARNESS_COMPONENTS = [
+  { key: 'identity', label: 'Identity' },
+  { key: 'operatingInstructions', label: 'Operating instructions' },
+  { key: 'safetyPolicy', label: 'Safety policy' },
+  { key: 'toolPolicy', label: 'Tool policy' },
+  { key: 'reasoningPolicy', label: 'Reasoning policy' },
+  { key: 'outputStyle', label: 'Output style' },
+  { key: 'behavioralMode', label: 'Behavioral mode' },
+  { key: 'persona', label: 'Persona' },
+];
+
 const HARNESS_SECTIONS = [
-  { key: 'systemPrompts', label: 'System Prompts', fields: [
-    { key: 'identity', label: 'Identity', type: 'select', options: ['auto', 'custom'] },
-    { key: 'operatingInstructions', label: 'Operating Instructions', type: 'textarea' },
-    { key: 'behavioralMode', label: 'Behavioral Mode', type: 'select', options: ['auto', 'custom'] },
-    { key: 'persona', label: 'Persona', type: 'textarea' },
+  { key: 'identity-operating', label: 'Identity and operating instructions', fields: HARNESS_COMPONENTS.slice(0, 2).map((field) => ({ ...field, type: 'textarea', scope: 'components' })) },
+  { key: 'safety-tools', label: 'Safety and tools', fields: HARNESS_COMPONENTS.slice(2, 4).map((field) => ({ ...field, type: 'textarea', scope: 'components' })) },
+  { key: 'reasoning-output', label: 'Reasoning and output', fields: HARNESS_COMPONENTS.slice(4, 6).map((field) => ({ ...field, type: 'textarea', scope: 'components' })) },
+  { key: 'behavior-persona', label: 'Behavior and persona', fields: HARNESS_COMPONENTS.slice(6, 8).map((field) => ({ ...field, type: 'textarea', scope: 'components' })) },
+  { key: 'generation', label: 'Generation defaults', fields: [
+    { key: 'temperature', label: 'Temperature', type: 'number', scope: 'generation', min: 0, max: 2, step: 0.1 },
+    { key: 'top_p', label: 'Top P', type: 'number', scope: 'generation', min: 0, max: 1, step: 0.05 },
+    { key: 'top_k', label: 'Top K', type: 'number', scope: 'generation', min: 0, max: 100, step: 1 },
+    { key: 'max_tokens', label: 'Max tokens', type: 'number', scope: 'generation', min: 0, max: 100000, step: 100 },
+    { key: 'effort', label: 'Reasoning effort', type: 'select', scope: 'generation', options: ['', 'none', 'low', 'medium', 'high', 'xhigh', 'max'] },
   ]},
-  { key: 'generation', label: 'Generation', fields: [
-    { key: 'temperature', label: 'Temperature', type: 'number', min: 0, max: 2, step: 0.1 },
-    { key: 'top_p', label: 'Top P', type: 'number', min: 0, max: 1, step: 0.05 },
-    { key: 'top_k', label: 'Top K', type: 'number', min: 0, max: 100, step: 1 },
-    { key: 'max_tokens', label: 'Max Tokens', type: 'number', min: 0, max: 100000, step: 100 },
-    { key: 'effort', label: 'Effort', type: 'select', options: ['', 'low', 'medium', 'high'] },
+  { key: 'infrastructure', label: 'Infrastructure defaults', fields: [
+    { key: 'stream', label: 'Stream', type: 'select', scope: 'infrastructure', options: ['', 'true', 'false'] },
+    { key: 'service_tier', label: 'Service tier', type: 'select', scope: 'infrastructure', options: ['', 'auto', 'default', 'flex', 'priority'] },
+    { key: 'user_id', label: 'Provider user identifier', type: 'text', scope: 'infrastructure' },
   ]},
-  { key: 'thinking', label: 'Thinking', fields: [
-    { key: 'type', label: 'Type', type: 'select', options: ['', 'enabled', 'disabled'] },
-    { key: 'budget_tokens', label: 'Budget Tokens', type: 'number', min: 0, max: 100000, step: 100 },
-  ]},
-  { key: 'infrastructure', label: 'Infrastructure', fields: [
-    { key: 'stream', label: 'Stream', type: 'select', options: ['', 'true', 'false'] },
-    { key: 'service_tier', label: 'Service Tier', type: 'select', options: ['', 'auto', 'default'] },
-  ]},
-  { key: 'aliases', label: 'Model Aliases', type: 'json' },
-  { key: 'headers', label: 'Custom Headers', type: 'json' },
+  { key: 'aliases', label: 'Model aliases', type: 'json', scope: 'components' },
+  { key: 'headers', label: 'Custom request metadata', type: 'json', scope: 'components' },
 ];
 
 const presetSourceLabel = (source) => ({
@@ -309,12 +341,16 @@ function renderPresetLibrary() {
   const sourceOptions = (page?.sources || []).map((source) =>
     `<option value="${esc(source.id)}" ${presetLibrary.source === source.id ? 'selected' : ''}>${esc(presetSourceLabel(source.id))} (${source.count})</option>`,
   ).join('');
+  const componentOptions = (page?.components || []).map((component) => {
+    const label = HARNESS_COMPONENTS.find((item) => item.key === component.id)?.label || component.id;
+    return `<option value="${esc(component.id)}" ${presetLibrary.component === component.id ? 'selected' : ''}>${esc(label)} (${component.count.toLocaleString()})</option>`;
+  }).join('');
   const results = presetLibrary.loading
     ? '<div class="preset-empty">Loading imported presets…</div>'
     : items.length
       ? items.map((entry) => `<button class="preset-result ${presetLibrary.selected?.id === entry.id ? 'selected' : ''}" type="button" data-preset-id="${esc(entry.id)}">
           <span><span class="preset-result-title">${esc(entry.title)}</span><span class="preset-result-detail">${esc(entry.description || entry.file)}</span></span>
-          <span class="preset-source">${esc(presetSourceLabel(entry.source))}</span>
+          <span class="preset-source">${esc(HARNESS_COMPONENTS.find((item) => item.key === entry.suggestedComponent)?.label || entry.suggestedComponent)} · ${esc(presetSourceLabel(entry.source))}</span>
         </button>`).join('')
       : '<div class="preset-empty">No imported presets match this search.</div>';
   const selected = presetLibrary.selected;
@@ -322,14 +358,14 @@ function renderPresetLibrary() {
       <div class="preset-preview-head"><h3>${esc(selected.title)}</h3><span class="preset-count">${selected.content.length.toLocaleString()} characters</span></div>
       <pre>${esc(selected.content.slice(0, 4000))}${selected.content.length > 4000 ? '\n\n[Preview truncated. Applying uses the complete imported preset.]' : ''}</pre>
       <div class="preset-apply">
-        <label class="form-field">Apply to<select class="input" data-preset-target><option value="operatingInstructions">Operating Instructions</option><option value="persona">Persona</option></select></label>
+        <label class="form-field">Apply to<select class="input" data-preset-target>${HARNESS_COMPONENTS.map((component) => `<option value="${component.key}" ${component.key === (selected.suggestedComponent || 'operatingInstructions') ? 'selected' : ''}>${esc(component.label)}</option>`).join('')}</select></label>
         <label class="form-field">Mode<select class="input" data-preset-mode><option value="replace">Replace</option><option value="append">Append</option></select></label>
         <button class="btn btn-sm" type="button" data-apply-preset>Apply preset</button>
       </div>
     </div>` : '';
   root.innerHTML = `<div class="preset-library-head"><h2>Imported preset library</h2><span class="preset-count">${page ? `${page.total.toLocaleString()} matching` : 'Preparing library'}</span></div>
-    <p>Search the imported collections, preview one inert prompt, then apply it to the Harness. Applying a preset saves it immediately.</p>
-    <div class="preset-toolbar"><select class="input" aria-label="Preset source" data-preset-source><option value="">All imported sources</option>${sourceOptions}</select><input class="input" type="search" placeholder="Search preset names, descriptions, or files" value="${esc(presetLibrary.query)}" data-preset-query /></div>
+    <p>Presets are inert text. SubChain classifies likely functions from metadata, then lets you choose the exact component before applying the complete source text.</p>
+    <div class="preset-toolbar"><select class="input" aria-label="Preset source" data-preset-source><option value="">All imported sources</option>${sourceOptions}</select><select class="input" aria-label="Harness component" data-preset-component><option value="">All Harness components</option>${componentOptions}</select><input class="input" type="search" placeholder="Search preset names, descriptions, or files" value="${esc(presetLibrary.query)}" data-preset-query /></div>
     <div class="preset-results">${results}</div>${preview}`;
   if (!presetLibrary.loaded && !presetLibrary.loading) void loadPresetEntries();
 }
@@ -341,6 +377,7 @@ async function loadPresetEntries() {
   const params = new URLSearchParams({ limit: '100' });
   if (presetLibrary.query) params.set('query', presetLibrary.query);
   if (presetLibrary.source) params.set('source', presetLibrary.source);
+  if (presetLibrary.component) params.set('component', presetLibrary.component);
   try {
     const page = await api(`/admin/presets?${params}`);
     if (request !== presetLibrary.request) return;
@@ -366,9 +403,10 @@ $('#presetLibrary').addEventListener('input', (event) => {
   presetSearchDebounce = setTimeout(loadPresetEntries, 180);
 });
 $('#presetLibrary').addEventListener('change', (event) => {
-  const field = event.target.closest('[data-preset-source]');
+  const field = event.target.closest('[data-preset-source], [data-preset-component]');
   if (!field) return;
-  presetLibrary.source = field.value;
+  if (field.matches('[data-preset-source]')) presetLibrary.source = field.value;
+  else presetLibrary.component = field.value;
   presetLibrary.selected = null;
   void loadPresetEntries();
 });
@@ -384,67 +422,61 @@ $('#presetLibrary').addEventListener('click', async (event) => {
   if (!event.target.closest('[data-apply-preset]') || !presetLibrary.selected) return;
   const target = $('[data-preset-target]', $('#presetLibrary')).value;
   const mode = $('[data-preset-mode]', $('#presetLibrary')).value;
-  if (mode === 'replace' && state.harness?.systemPrompts?.[target] && !confirm(`Replace the current ${target === 'persona' ? 'persona' : 'operating instructions'}?`)) return;
+  const current = currentHarness()?.components?.[target];
+  if (mode === 'replace' && current && !confirm(`Replace the current ${HARNESS_COMPONENTS.find((component) => component.key === target)?.label || target}?`)) return;
   try {
-    const result = await api('/admin/harness/preset', { method: 'POST', body: JSON.stringify({ id: presetLibrary.selected.id, target, mode }) });
-    state.harness = result.harness;
+    const result = await api('/admin/harness/preset', { method: 'POST', body: JSON.stringify({ harnessId: activeHarnessId, id: presetLibrary.selected.id, target, mode }) });
+    const index = state.harnesses.findIndex((harness) => harness.id === result.harness.id);
+    if (index >= 0) state.harnesses[index] = result.harness;
     renderHarness();
-    toast('Preset applied to the Harness');
+    toast(`Preset applied to ${result.harness.name}`);
   } catch (error) { toast(error.message, true); }
 });
 
+function currentHarness() {
+  return state?.harnesses?.find((harness) => harness.id === activeHarnessId)
+    || state?.harnesses?.[0]
+    || null;
+}
+
+function valueForField(harness, field) {
+  if (field.scope === 'components') return harness.components?.[field.key];
+  return harness.components?.[field.scope]?.[field.key];
+}
+
+function renderHarnessField(harness, field) {
+  const value = valueForField(harness, field);
+  const attributes = `data-harness-edit data-component-scope="${esc(field.scope)}" data-component-key="${esc(field.key)}"`;
+  if (field.type === 'textarea') return `<div class="harness-field"><label>${esc(field.label)}</label><textarea ${attributes}>${esc(value || '')}</textarea></div>`;
+  if (field.type === 'select') {
+    return `<div class="harness-field"><label>${esc(field.label)}</label><select class="input" ${attributes}>${field.options.map((option) => `<option value="${esc(option)}" ${(value === option || (value === null && option === '')) ? 'selected' : ''}>${esc(option || '(provider default)')}</option>`).join('')}</select></div>`;
+  }
+  return `<div class="harness-field"><label>${esc(field.label)}</label><input class="input" type="${field.type === 'number' ? 'number' : 'text'}" ${attributes} value="${value !== null && value !== undefined ? esc(value) : ''}" ${field.min !== undefined ? `min="${field.min}"` : ''} ${field.max !== undefined ? `max="${field.max}"` : ''} ${field.step ? `step="${field.step}"` : ''} placeholder="provider default" /></div>`;
+}
+
 function renderHarness() {
-  const harness = state.harness || {};
-
-  $('#harnessConfig').innerHTML = HARNESS_SECTIONS.map((section) => {
+  if (!state.harnesses?.some((harness) => harness.id === activeHarnessId)) activeHarnessId = state.harnesses?.[0]?.id || 'default';
+  const harness = currentHarness();
+  if (!harness) return;
+  localStorage.setItem('subchain.harness.active', activeHarnessId);
+  const assigned = state.localKeys.filter((key) => key.harnessId === harness.id).length;
+  const sections = HARNESS_SECTIONS.map((section) => {
+    const expansionKey = `${harness.id}:${section.key}`;
+    const expanded = harnessExpansion.isExpanded(expansionKey);
     let bodyHtml;
-
     if (section.type === 'json') {
-      const val = harness[section.key] || {};
-      bodyHtml = `<div class="harness-field">
-        <label>${esc(section.label)} (JSON object)</label>
-        <textarea class="mono" data-harness-json="${esc(section.key)}" rows="4">${esc(JSON.stringify(val, null, 2))}</textarea>
-      </div>`;
+      const help = section.key === 'headers' ? '<p class="form-hint">Optional HTTP metadata only. Credential, cookie, host, and connection headers are blocked.</p>' : '';
+      bodyHtml = `<div class="harness-field"><label>${esc(section.label)} (JSON object)</label><textarea class="mono" data-harness-edit data-component-json="${esc(section.key)}" rows="4">${esc(JSON.stringify(harness.components?.[section.key] || {}, null, 2))}</textarea>${help}</div>`;
     } else {
-      bodyHtml = section.fields.map((f) => {
-        const val = harness[section.key]?.[f.key];
-        if (f.type === 'textarea') {
-          return `<div class="harness-field">
-            <label>${esc(f.label)}</label>
-            <textarea data-harness-section="${esc(section.key)}" data-harness-field="${esc(f.key)}">${esc(val || '')}</textarea>
-          </div>`;
-        }
-        if (f.type === 'select') {
-          const opts = f.options.map((o) =>
-            `<option value="${esc(o)}" ${(val === o || (val === null && o === '')) ? 'selected' : ''}>${esc(o || '(default)')}</option>`
-          ).join('');
-          return `<div class="harness-field">
-            <label>${esc(f.label)}</label>
-            <select class="input" data-harness-section="${esc(section.key)}" data-harness-field="${esc(f.key)}">${opts}</select>
-          </div>`;
-        }
-        if (f.type === 'number') {
-          return `<div class="harness-field">
-            <label>${esc(f.label)}</label>
-            <input class="input" type="number" data-harness-section="${esc(section.key)}" data-harness-field="${esc(f.key)}"
-              value="${val !== null && val !== undefined ? val : ''}"
-              ${f.min !== undefined ? `min="${f.min}"` : ''} ${f.max !== undefined ? `max="${f.max}"` : ''} ${f.step ? `step="${f.step}"` : ''} placeholder="null" />
-          </div>`;
-        }
-        return '';
-      }).join('');
+      bodyHtml = section.fields.map((field) => renderHarnessField(harness, field)).join('');
     }
-
-    return `<div class="harness-section">
-      <div class="harness-toggle ${harnessExpansion.isExpanded(section.key) ? 'open' : ''}" data-toggle="${esc(section.key)}">
-        <h3>${esc(section.label)}</h3>
-        ${icon.chevDown}
-      </div>
-      <div class="harness-body ${harnessExpansion.isExpanded(section.key) ? '' : 'collapsed'}" id="harness-${esc(section.key)}">
-        ${bodyHtml}
-      </div>
-    </div>`;
+    return `<section class="harness-section"><button class="harness-toggle ${expanded ? 'open' : ''}" type="button" data-toggle="${esc(expansionKey)}" aria-expanded="${expanded}"><h3>${esc(section.label)}</h3>${icon.chevDown}</button><div class="harness-body ${expanded ? '' : 'collapsed'}" data-harness-body="${esc(expansionKey)}">${bodyHtml}</div></section>`;
   }).join('');
+  $('#harnessConfig').innerHTML = `<div class="card harness-workspace">
+      <div class="harness-workspace-grid"><label class="form-field grow">Active Harness<select class="input" data-active-harness>${state.harnesses.map((candidate) => `<option value="${esc(candidate.id)}" ${candidate.id === harness.id ? 'selected' : ''}>${esc(candidate.name)}</option>`).join('')}</select></label><label class="form-field grow">Harness name<input class="input" data-harness-name maxlength="120" value="${esc(harness.name)}" /></label><button class="btn btn-ghost btn-danger" type="button" data-delete-harness ${harness.id === 'default' ? 'disabled' : ''}>Delete</button></div>
+      <div class="row-between harness-workspace-meta"><span>${assigned} local key${assigned === 1 ? '' : 's'} assigned</span><span>Changes save automatically</span></div>
+      <form class="form-row harness-create" data-create-harness><label class="form-field grow">New Harness name<input class="input" name="name" maxlength="120" placeholder="Research with strict citations" required /></label><button class="btn" type="submit">Create Harness</button></form>
+    </div>${sections}`;
   renderPresetLibrary();
 }
 
@@ -453,31 +485,71 @@ $('#harnessConfig').addEventListener('click', (e) => {
   const toggle = e.target.closest('.harness-toggle');
   if (!toggle) return;
   const key = toggle.dataset.toggle;
-  const body = $(`#harness-${CSS.escape(key)}`);
+  const body = $(`[data-harness-body="${CSS.escape(key)}"]`, $('#harnessConfig'));
   body.classList.toggle('collapsed');
   toggle.classList.toggle('open');
+  toggle.setAttribute('aria-expanded', String(!body.classList.contains('collapsed')));
   harnessExpansion.setExpanded(key, !body.classList.contains('collapsed'));
+});
+
+$('#harnessConfig').addEventListener('submit', async (event) => {
+  const form = event.target.closest('[data-create-harness]');
+  if (!form) return;
+  event.preventDefault();
+  try {
+    const result = await api('/admin/harnesses', { method: 'POST', body: JSON.stringify({ name: new FormData(form).get('name') }) });
+    activeHarnessId = result.harness.id;
+    presetLibrary.selected = null;
+    await refresh();
+    toast('Harness created');
+  } catch (error) { toast(error.message, true); }
+});
+
+$('#harnessConfig').addEventListener('change', async (event) => {
+  const select = event.target.closest('[data-active-harness]');
+  if (!select) return;
+  activeHarnessId = select.value;
+  localStorage.setItem('subchain.harness.active', activeHarnessId);
+  presetLibrary.selected = null;
+  renderHarness();
+});
+
+$('#harnessConfig').addEventListener('click', async (event) => {
+  if (!event.target.closest('[data-delete-harness]')) return;
+  const harness = currentHarness();
+  if (!harness || !confirm(`Delete ${harness.name}?`)) return;
+  try {
+    await api(`/admin/harnesses/${encodeURIComponent(harness.id)}`, { method: 'DELETE' });
+    activeHarnessId = 'default';
+    await refresh();
+    toast('Harness deleted');
+  } catch (error) { toast(error.message, true); }
 });
 
 // Save harness on change (debounced)
 let harnessDebounce;
-$('#harnessConfig').addEventListener('input', () => {
+$('#harnessConfig').addEventListener('input', (event) => {
+  if (!event.target.closest('[data-harness-edit], [data-harness-name]')) return;
   clearTimeout(harnessDebounce);
   harnessDebounce = setTimeout(saveHarness, 800);
 });
-$('#harnessConfig').addEventListener('change', () => {
+$('#harnessConfig').addEventListener('change', (event) => {
+  if (!event.target.closest('[data-harness-edit], [data-harness-name]')) return;
   clearTimeout(harnessDebounce);
   saveHarness();
 });
 
 async function saveHarness() {
-  const harness = state.harness || {};
-
-  // Collect section fields
-  $$('[data-harness-section]').forEach((el) => {
-    const section = el.dataset.harnessSection;
-    const field = el.dataset.harnessField;
-    if (!harness[section]) harness[section] = {};
+  const harness = currentHarness();
+  if (!harness) return;
+  const components = structuredClone(harness.components || {});
+  $$('[data-harness-edit]', $('#harnessConfig')).forEach((el) => {
+    if (el.dataset.componentJson) {
+      try { components[el.dataset.componentJson] = JSON.parse(el.value); } catch {}
+      return;
+    }
+    const scope = el.dataset.componentScope;
+    const field = el.dataset.componentKey;
     let val = el.value;
     if (el.type === 'number') {
       val = val === '' ? null : Number(val);
@@ -488,21 +560,19 @@ async function saveHarness() {
     } else if (val === 'false') {
       val = false;
     }
-    harness[section][field] = val;
-  });
-
-  // Collect JSON fields
-  $$('[data-harness-json]').forEach((el) => {
-    try {
-      harness[el.dataset.harnessJson] = JSON.parse(el.value);
-    } catch {
-      // leave unchanged on invalid JSON
+    if (scope === 'components') components[field] = val ?? '';
+    else {
+      if (!components[scope]) components[scope] = {};
+      components[scope][field] = val;
     }
   });
-
   try {
-    await api('/admin/harness', { method: 'POST', body: JSON.stringify(harness) });
-    state.harness = harness;
+    const result = await api(`/admin/harnesses/${encodeURIComponent(harness.id)}`, {
+      method: 'POST',
+      body: JSON.stringify({ name: $('[data-harness-name]', $('#harnessConfig')).value, components }),
+    });
+    const index = state.harnesses.findIndex((candidate) => candidate.id === result.harness.id);
+    if (index >= 0) state.harnesses[index] = result.harness;
   } catch (err) {
     toast(err.message, true);
   }
@@ -519,14 +589,19 @@ function destinationOptions(type, selected) {
   return values.map((value) => `<option value="${esc(value.id)}" ${value.id === selected ? 'selected' : ''}>${esc(value.label)}</option>`).join('');
 }
 
+function harnessOptions(selected) {
+  return (state.harnesses || []).map((harness) => `<option value="${esc(harness.id)}" ${harness.id === selected ? 'selected' : ''}>${esc(harness.name)}</option>`).join('');
+}
+
 function renderAccess() {
   const form = $('#addLocalKeyForm');
   const type = form.elements.targetType.value;
   $('#newKeyTarget').innerHTML = destinationOptions(type, $('#newKeyTarget').value);
+  $('#newKeyHarness').innerHTML = harnessOptions($('#newKeyHarness').value || 'default');
   $('#localKeyList').innerHTML = state.localKeys.map((localKey) => `<article class="card local-key-card" data-local-key="${esc(localKey.id)}">
     <div class="row-between local-key-head"><div><h2>${esc(localKey.name)}</h2><p>Required on every request to <span class="mono">/v1/*</span> made with this key.</p></div><span class="badge ${localKey.hasToken ? 'badge-ok' : 'badge-warn'}"><span class="dot"></span>${localKey.hasToken ? 'active' : 'missing'}</span></div>
     <div class="keyfield"><input type="password" value="${MASK}" readonly spellcheck="false" data-key-value /><button class="btn btn-ghost btn-sm" data-reveal-key>Show</button><button class="btn btn-sm" data-copy-key>Copy</button><button class="btn btn-sm" data-rotate-key>Rotate</button></div>
-    <div class="form-row local-key-target"><label class="form-field">Feeds<select class="input" data-key-target-type><option value="chain" ${localKey.target.type === 'chain' ? 'selected' : ''}>a chain</option><option value="provider" ${localKey.target.type === 'provider' ? 'selected' : ''}>one provider</option></select></label><label class="form-field grow">Destination<select class="input" data-key-target-id>${destinationOptions(localKey.target.type, localKey.target.id)}</select></label><button class="btn btn-sm" data-save-key-target>Save destination</button>${localKey.id === 'default' ? '' : '<button class="btn btn-ghost btn-sm btn-danger" data-delete-key>Delete</button>'}</div>
+    <div class="form-row local-key-target"><label class="form-field">Feeds<select class="input" data-key-target-type><option value="chain" ${localKey.target.type === 'chain' ? 'selected' : ''}>a chain</option><option value="provider" ${localKey.target.type === 'provider' ? 'selected' : ''}>one provider</option></select></label><label class="form-field grow">Destination<select class="input" data-key-target-id>${destinationOptions(localKey.target.type, localKey.target.id)}</select></label><label class="form-field grow">Harness<select class="input" data-key-harness>${harnessOptions(localKey.harnessId || 'default')}</select></label><button class="btn btn-sm" data-save-key-target>Save routing</button>${localKey.id === 'default' ? '' : '<button class="btn btn-ghost btn-sm btn-danger" data-delete-key>Delete</button>'}</div>
   </article>`).join('');
 }
 
@@ -540,7 +615,7 @@ $('#addLocalKeyForm').addEventListener('submit', async (event) => {
   const formElement = event.currentTarget;
   const form = new FormData(formElement);
   try {
-    const result = await api('/admin/local-keys', { method: 'POST', body: JSON.stringify({ name: form.get('name'), target: { type: form.get('targetType'), id: form.get('targetId') } }) });
+    const result = await api('/admin/local-keys', { method: 'POST', body: JSON.stringify({ name: form.get('name'), target: { type: form.get('targetType'), id: form.get('targetId') }, harnessId: form.get('harnessId') }) });
     await copy(result.key, 'New local key copied');
     formElement.reset();
     await refresh();
@@ -585,9 +660,10 @@ $('#localKeyList').addEventListener('click', async (event) => {
     if (event.target.closest('[data-save-key-target]')) {
       const type = $('[data-key-target-type]', card).value;
       const target = $('[data-key-target-id]', card).value;
-      await api(`/admin/local-keys/${id}`, { method: 'POST', body: JSON.stringify({ target: { type, id: target } }) });
+      const harnessId = $('[data-key-harness]', card).value;
+      await api(`/admin/local-keys/${id}`, { method: 'POST', body: JSON.stringify({ target: { type, id: target }, harnessId }) });
       await refresh();
-      toast('Key destination saved');
+      toast('Key routing and Harness saved');
       return;
     }
     if (event.target.closest('[data-delete-key]')) {
@@ -658,7 +734,7 @@ OPENAI_API_BASE=${esc(base)}`,
 
     ui: `${c('Any editor assistant or GUI with a custom OpenAI endpoint:')}
 
-  Provider    OpenAI compatible ${c('(or "OpenRouter" — same wire format)')}
+  Provider    OpenAI compatible ${c('(or "OpenRouter", same wire format)')}
   Base URL    ${esc(base)}
   API key     ${esc(key)}
   Model       auto
@@ -712,13 +788,13 @@ $('#btnShortcutDismiss').addEventListener('click', async (e) => {
 
 // ── boot ─────────────────────────────────────────────────────────────
 
-async function refresh() {
+async function refresh({ preserveHarnessEditor = false } = {}) {
   state = await api('/admin/state');
   renderOverview();
   renderProviders();
   renderChain();
   renderAccess();
-  renderHarness();
+  if (!preserveHarnessEditor) renderHarness();
   renderSnippet();
   $('#serverDot').style.color = 'var(--success)';
   $('#serverStatus').textContent = `running · ${state.stats.uptimeSeconds}s`;
@@ -731,4 +807,4 @@ refresh().catch((err) => {
 });
 loadShortcutPrompt();
 
-setInterval(() => refresh().catch(() => {}), 10_000);
+setInterval(() => refresh({ preserveHarnessEditor: $('#page-harness').classList.contains('active') }).catch(() => {}), 10_000);

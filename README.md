@@ -29,9 +29,10 @@ public `chain.config.example.json` starter. It is a new, editable five-link
 chain rather than a migrated compatibility chain.
 
 Use the dashboard to create up to ten local keys, then assign each key to one
-provider or one chain. You can create up to ten chains and add up to five links
-to each new chain. The migrated Default chain is a compatibility exception: it
-keeps its existing links but cannot grow past five.
+provider or one chain and one named Harness. You can create up to ten chains
+and add up to five provider subscriptions to each new chain. The migrated
+Default chain is a compatibility exception: it keeps its existing links but
+cannot grow past five.
 
 ## Connect an app
 
@@ -58,15 +59,31 @@ credentials to the browser.
 
 The base provider credential serves that provider family once. Additional
 numbered provider slots require an explicit `SUBCHAIN_<PROVIDER><N>_API_KEY`
-override, so a single credential is never misreported as several candidates.
+override, so a single credential is never misreported as several accounts.
 
-The supported providers are Anthropic, OpenAI API, Kimi, Google, Zhipu AI GLM,
-and Sakana AI. Zhipu and Sakana accept direct API keys. Read the concise,
-provider-specific instructions in [docs/provider-access](docs/provider-access/README.md).
+The dashboard represents each configured provider subscription as an account.
+Each account has an editable local label, a manual **Ping** action, discovered
+models, provider-reported quota windows when available, and locally observed
+request and token totals. A Ping is read-only and never returns credentials or
+account identity fields to the browser.
 
-ChatGPT/Codex sign-in is for the official Codex clients. It is not a general
-purpose proxy credential. SubChain's OpenAI route uses a standard OpenAI API
-key, and ChatGPT and API Platform billing are separate.
+Supported lanes are Anthropic, managed OpenAI Codex, direct OpenAI API, Kimi,
+Google Gemini API, managed Google Antigravity, Zhipu AI GLM, and Sakana AI.
+Managed Codex uses the documented local `codex app-server` interface and lets
+Codex own the ChatGPT sign-in and token refresh lifecycle. SubChain never copies
+Codex OAuth tokens or calls an undocumented consumer endpoint. Direct OpenAI
+API keys remain a separate account because API Platform billing and ChatGPT
+subscription limits are different. Read the standardized provider instructions
+in [docs/provider-access](docs/provider-access/README.md).
+
+## Harnesses
+
+A named Harness is the request policy assigned to a local key. It can combine
+identity, operating instructions, safety policy, tool policy, reasoning policy,
+output style, behavioral mode, persona, generation defaults, infrastructure
+settings, model aliases, and safe metadata. Background dashboard refreshes do
+not close expanded Harness sections, and the browser remembers each section's
+state per Harness.
 
 ## Presets
 
@@ -79,9 +96,9 @@ npm run import-presets
 The importer accepts only declared text or JSON prompt paths, writes a manifest
 with source URL, revision, licence copy, and checksums, and does not execute
 imported content. Prompt bodies are intentionally never vendored into this
-public repository. The Harness has a searchable loopback-only library where an
-imported preset can be previewed and then applied to Operating Instructions or
-Persona. See [docs/PRESETS.md](docs/PRESETS.md).
+public repository. The Harness page classifies every imported entry by likely
+function so a preset can be previewed and applied to the appropriate Harness
+component in replace or append mode. See [docs/PRESETS.md](docs/PRESETS.md).
 
 ## Safety model
 

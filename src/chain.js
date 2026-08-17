@@ -157,9 +157,10 @@ export async function dispatch(scope, cooldowns, quota, body, { signal, onAttemp
           signal: combined,
           headers: {
             'Content-Type': 'application/json',
-            ...authHeader(credential, link),
-            ...transformHeaders,
+            ...scope.harnessHeaders,
             ...link.headers,
+            ...transformHeaders,
+            ...authHeader(credential, link),
           },
           body: JSON.stringify(transformedBody),
         });

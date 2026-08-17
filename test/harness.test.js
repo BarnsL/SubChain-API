@@ -10,6 +10,8 @@ const {
   createHarness,
   loadHarnessLibrary,
   removeHarness,
+  resolveHarnessFile,
+  sanitizeHarnessHeaders,
   updateHarness,
 } = harnessModule;
 
@@ -72,4 +74,21 @@ test('Harness administration creates unique ids and protects the Default Harness
   assert.equal(first.components.safetyPolicy, 'Cite sources.');
   assert.throws(() => removeHarness(library, 'default'), /Default Harness cannot be deleted/i);
   assert.equal(removeHarness(library, second.id).id, second.id);
+});
+
+test('Harness HTTP metadata cannot override credentials or connection framing', () => {
+  assert.deepEqual(sanitizeHarnessHeaders({
+    'X-App-Name': 'research-console',
+    Authorization: 'not-allowed',
+    Cookie: 'not-allowed',
+    Host: 'not-allowed',
+    'Content-Length': '999',
+    'Bad Header': 'not-allowed',
+    'X-Object': { unsafe: true },
+  }), { 'X-App-Name': 'research-console' });
+});
+
+test('named Harnesses default to private platform application data', () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'subchain-harness-data-'));
+  assert.equal(resolveHarnessFile({ dataDir }), path.join(dataDir, 'harnesses.json'));
 });

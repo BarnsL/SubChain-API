@@ -49,7 +49,7 @@ test('private imported prompts become searchable Harness entries and expose only
   fs.mkdirSync(path.join(sourceDir, 'data', 'prompts'), { recursive: true });
   fs.writeFileSync(path.join(sourceDir, 'plain.md'), 'plain fixture prompt', 'utf8');
   fs.writeFileSync(path.join(sourceDir, 'data', 'prompts', 'prompts.json'), JSON.stringify({
-    prompts: [{ id: 'fixture-prompt', name: 'Fixture prompt', description: 'A test prompt', pieces: ['first ', 'second'] }],
+    prompts: [{ id: 'fixture-prompt', name: 'Tool permission policy', description: 'Controls browser and shell tools', pieces: ['first ', 'second'] }],
   }), 'utf8');
   fs.writeFileSync(path.join(sourceDir, 'manifest.json'), JSON.stringify({
     source: 'fixture', repository: 'https://example.invalid/fixture', revision: 'test', fileCount: 2,
@@ -61,9 +61,12 @@ test('private imported prompts become searchable Harness entries and expose only
 
   const listed = listPresetEntries({ dataDir, limit: 10 });
   assert.equal(listed.total, 2);
-  assert.deepEqual(listed.items.map((entry) => entry.title), ['Fixture prompt', 'plain.md']);
-  assert.equal(listPresetEntries({ dataDir, query: 'fixture', limit: 10 }).total, 1);
-  const selected = readPresetEntry({ dataDir, id: listed.items[0].id });
+  assert.deepEqual(listed.items.map((entry) => entry.title), ['plain.md', 'Tool permission policy']);
+  assert.equal(listed.items[1].suggestedComponent, 'toolPolicy');
+  assert.equal(listed.items[1].functions.includes('toolPolicy'), true);
+  assert.equal(listPresetEntries({ dataDir, component: 'toolPolicy', limit: 10 }).total, 1);
+  assert.equal(listPresetEntries({ dataDir, query: 'permission', limit: 10 }).total, 1);
+  const selected = readPresetEntry({ dataDir, id: listed.items[1].id });
   assert.equal(selected.content, 'first second');
   assert.equal(selected.source, 'fixture');
 });

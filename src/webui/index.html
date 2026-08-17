@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>SubChain</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔗</text></svg>" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%2314b8a6'/><path d='M12 11l-3 3a4 4 0 005.7 5.7l2-2m3.3-4.4l2-2A4 4 0 0016.3 5l-2 2m-2 9l7-7' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round'/></svg>" />
 <link rel="stylesheet" href="/app.css" />
 </head>
 <body>
@@ -12,7 +12,7 @@
 <div class="shell">
   <aside class="sidebar">
     <div class="brand">
-      <div class="brand-mark">🔗</div>
+      <div class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.8 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.8-1.7"/></svg></div>
       <div>
         <div class="brand-name">SubChain</div>
       </div>
@@ -101,10 +101,9 @@
         </p>
 
         <div class="stat-grid">
-          <div class="stat"><div class="stat-label">Endpoint</div><div class="stat-value mono" style="font-size:15px" id="statEndpoint">—</div><div class="stat-sub">base URL for your apps</div></div>
-          <div class="stat"><div class="stat-label">Links configured</div><div class="stat-value" id="statReady">—</div><div class="stat-sub" id="statReadySub">credential state, not a live probe</div></div>
-          <div class="stat"><div class="stat-label">Candidates</div><div class="stat-value" id="statCandidates">—</div><div class="stat-sub">provider families ready</div></div>
-          <div class="stat"><div class="stat-label">Requests served</div><div class="stat-value" id="statServed">—</div><div class="stat-sub" id="statFailed">since start</div></div>
+          <div class="stat"><div class="stat-label">Endpoint</div><div class="stat-value mono" style="font-size:15px" id="statEndpoint">not available</div><div class="stat-sub">base URL for your apps</div></div>
+          <div class="stat"><div class="stat-label">Links configured</div><div class="stat-value" id="statReady">0</div><div class="stat-sub" id="statReadySub">provider account status</div></div>
+          <div class="stat"><div class="stat-label">Requests served</div><div class="stat-value" id="statServed">0</div><div class="stat-sub" id="statFailed">since start</div></div>
         </div>
 
         <div id="noKeysCallout" class="callout warn hidden" style="margin-top:18px">
@@ -118,7 +117,7 @@
         <div class="section-head"><h2>Provider Status</h2><p>Subscription providers and their credential state.</p></div>
         <div class="stat-grid" id="sourceCards"></div>
 
-        <div class="section-head"><h2>Cooling off</h2><p>Candidates temporarily skipped after a rate limit or error.</p></div>
+        <div class="section-head"><h2>Cooling off</h2><p>Routes temporarily skipped after a rate limit or error.</p></div>
         <div id="coolingBox"></div>
       </section>
 
@@ -135,6 +134,7 @@
             <label class="form-field grow">Key name<input class="input" name="name" maxlength="80" placeholder="Research apps" required /></label>
             <label class="form-field">Feeds<select class="input" name="targetType"><option value="chain">a chain</option><option value="provider">one provider</option></select></label>
             <label class="form-field grow">Destination<select class="input" name="targetId" id="newKeyTarget"></select></label>
+            <label class="form-field grow">Harness<select class="input" name="harnessId" id="newKeyHarness"></select></label>
             <button class="btn btn-primary" type="submit">Add local key</button>
           </form>
           <p class="form-hint">Keys are shown only on this local dashboard. Rotating one never changes another key.</p>
@@ -191,11 +191,11 @@
       <section class="page" id="page-harness">
         <h1>Harness</h1>
         <p class="lede">
-          Configuration injected into every request before it reaches the chain. Model aliases,
-          generation defaults, and infrastructure settings live here.
+          Build named Harnesses by mixing identity, operating, safety, tool, reasoning, output,
+          behavior, persona, generation, and infrastructure components. Assign one to each local key.
         </p>
-        <div id="presetLibrary" class="preset-library card" aria-live="polite"></div>
         <div id="harnessConfig"></div>
+        <div id="presetLibrary" class="preset-library card" aria-live="polite"></div>
       </section>
 
     </div>

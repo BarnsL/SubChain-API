@@ -54,7 +54,7 @@ export function createShortcut() {
     `$sc = $ws.CreateShortcut(${psQuote(link)})`,
     `$sc.TargetPath = ${psQuote(process.execPath)}`,
     `$sc.WorkingDirectory = ${psQuote(EXE_DIR)}`,
-    `$sc.Description = ${psQuote('SubChain — subscription-provider failover router')}`,
+    `$sc.Description = ${psQuote('SubChain subscription-provider failover router')}`,
     '$sc.Save()',
   ].join('; ');
 

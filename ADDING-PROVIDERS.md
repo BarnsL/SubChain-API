@@ -5,10 +5,12 @@ credential discovery, chain controls, and release documentation consistent.
 
 ## 1. Confirm the supported integration
 
-Use only the provider's documented API and authorized credential type. Record
-the endpoint, request format, authentication method, and current official
-documentation source. Do not build an integration around browser sessions,
-consumer cookies, or an undocumented client backend.
+Prefer the provider's documented API and authorized credential type. A managed
+local client is acceptable when it exposes a documented integration protocol
+and continues to own sign-in, token refresh, and logout. Record the endpoint or
+protocol, request format, authentication boundary, model discovery method,
+quota method, and current official source. Never make token extraction the
+default when a supported managed interface exists.
 
 ## 2. Register the provider
 
@@ -53,5 +55,10 @@ Create `docs/provider-access/<provider>.md` using the local playbook. Add:
 2. a request transform test if needed;
 3. scoped model-list coverage when the provider is targetable;
 4. a redacted dashboard check.
+
+If the provider exposes account, model, or quota inspection, add a bounded
+probe in `src/provider-probes.js` or a managed client in
+`src/managed-transports.js`. Normalize the result through
+`src/provider-status.js`; do not pass arbitrary provider JSON to the browser.
 
 Run `npm test`, `npm run audit:public`, and `git diff --check` before release.

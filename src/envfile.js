@@ -70,7 +70,7 @@ export function setEnvVars(file, updates) {
   return changed;
 }
 
-/** Push the file's values into process.env, overwriting — used after a save. */
+/** Push the file's values into process.env, overwriting; used after a save. */
 export function reloadEnv(file) {
   if (!fs.existsSync(file)) return;
   for (const raw of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {

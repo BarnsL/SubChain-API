@@ -9,7 +9,18 @@ import { resolveKeys } from './config.js';
 import { Cooldowns, dispatch, ChainError } from './chain.js';
 import { IS_SEA, EXE_DIR } from './runtime.js';
 import { transformResponse, transformStreamChunk } from './transforms.js';
-import { applyHarness, loadHarness, saveHarness } from './harness.js';
+import {
+  TEXT_COMPONENTS,
+  applyHarnessConfig,
+  createHarness,
+  harnessById,
+  loadHarness,
+  loadHarnessLibrary,
+  removeHarness,
+  saveHarness,
+  saveHarnessLibrary,
+  updateHarness,
+} from './harness.js';
 import { listPresetEntries, readPresetEntry } from './presets.js';
 import {
   bearerFrom,
@@ -155,12 +166,22 @@ export function createServer(runtime, quota, {
         if (!isLoopbackAddress(req.socket.remoteAddress)) {
           return fail(res, 403, 'Administrative routes are available only from the local machine');
         }
+        const fetchSite = String(req.headers['sec-fetch-site'] || '').toLowerCase();
+        if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && fetchSite && !['same-origin', 'none'].includes(fetchSite)) {
+          return fail(res, 403, 'Cross-site administrative mutations are not allowed');
+        }
+        if (['POST', 'PUT', 'PATCH'].includes(req.method)
+          && !/^application\/json(?:\s*;|$)/i.test(String(req.headers['content-type'] || ''))) {
+          return fail(res, 415, 'Administrative mutations require application/json');
+        }
         if (url.pathname === '/admin/state' && req.method === 'GET') {
+          const harnessLibrary = loadHarnessLibrary(harnessFile);
           return json(res, 200, {
             ...inventory(),
             cooling: cooldowns.snapshot(),
             quota: quota.snapshot(),
             harness: loadHarness(harnessFile),
+            harnesses: harnessLibrary.harnesses,
             stats: { ...stats, uptimeSeconds: Math.round((Date.now() - stats.startedAt) / 1000) },
           });
         }
@@ -188,6 +209,9 @@ export function createServer(runtime, quota, {
         }
         if (url.pathname === '/admin/local-keys' && req.method === 'POST') {
           const { id, name, target, harnessId } = await readJson(req);
+          if (harnessId && !loadHarnessLibrary(harnessFile).harnesses.some((harness) => harness.id === harnessId)) {
+            return fail(res, 400, 'Unknown Harness');
+          }
           const created = addLocalKey(runtime, { id, name, target, harnessId });
           const { secretRef, ...localKey } = created.key;
           return json(res, 201, { localKey, key: created.token });
@@ -200,6 +224,9 @@ export function createServer(runtime, quota, {
         }
         if (keyMatch && req.method === 'POST') {
           const update = await readJson(req);
+          if (update.harnessId && !loadHarnessLibrary(harnessFile).harnesses.some((harness) => harness.id === update.harnessId)) {
+            return fail(res, 400, 'Unknown Harness');
+          }
           const { secretRef, ...localKey } = updateLocalKey(runtime, keyMatch[1], update);
           return json(res, 200, { localKey });
         }
@@ -248,11 +275,39 @@ export function createServer(runtime, quota, {
         if (url.pathname === '/admin/harness' && req.method === 'GET') {
           return json(res, 200, loadHarness(harnessFile));
         }
+        if (url.pathname === '/admin/harnesses' && req.method === 'GET') {
+          return json(res, 200, loadHarnessLibrary(harnessFile));
+        }
+        if (url.pathname === '/admin/harnesses' && req.method === 'POST') {
+          const input = await readJson(req);
+          const library = loadHarnessLibrary(harnessFile);
+          const harness = createHarness(library, input);
+          saveHarnessLibrary(library, harnessFile);
+          return json(res, 201, { harness });
+        }
+        const harnessMatch = /^\/admin\/harnesses\/([a-z0-9-]+)$/.exec(url.pathname);
+        if (harnessMatch && req.method === 'POST') {
+          const library = loadHarnessLibrary(harnessFile);
+          const harness = updateHarness(library, harnessMatch[1], await readJson(req));
+          saveHarnessLibrary(library, harnessFile);
+          return json(res, 200, { harness });
+        }
+        if (harnessMatch && req.method === 'DELETE') {
+          if (runtime.routing.localKeys.some((key) => key.harnessId === harnessMatch[1])) {
+            return fail(res, 409, 'Harness is assigned to a local key');
+          }
+          const library = loadHarnessLibrary(harnessFile);
+          removeHarness(library, harnessMatch[1]);
+          saveHarnessLibrary(library, harnessFile);
+          return json(res, 200, { ok: true });
+        }
         if (url.pathname === '/admin/presets' && req.method === 'GET') {
           return json(res, 200, listPresetEntries({
             dataDir: runtime.presetDataDir,
             source: url.searchParams.get('source'),
+            component: url.searchParams.get('component'),
             query: url.searchParams.get('query') || '',
+            offset: url.searchParams.get('offset') || 0,
             limit: url.searchParams.get('limit') || 50,
           }));
         }
@@ -260,16 +315,22 @@ export function createServer(runtime, quota, {
           return json(res, 200, readPresetEntry({ dataDir: runtime.presetDataDir, id: url.searchParams.get('id') }));
         }
         if (url.pathname === '/admin/harness/preset' && req.method === 'POST') {
-          const { id, target = 'operatingInstructions', mode = 'replace' } = await readJson(req);
-          if (!['operatingInstructions', 'persona'].includes(target)) return fail(res, 400, 'Preset target is invalid');
+          const { harnessId = 'default', id, target = 'operatingInstructions', mode = 'replace' } = await readJson(req);
+          if (!TEXT_COMPONENTS.includes(target)) return fail(res, 400, 'Preset target is invalid');
           if (!['replace', 'append'].includes(mode)) return fail(res, 400, 'Preset mode is invalid');
           const preset = readPresetEntry({ dataDir: runtime.presetDataDir, id });
-          const harness = loadHarness(harnessFile);
-          const current = typeof harness.systemPrompts?.[target] === 'string' ? harness.systemPrompts[target].trim() : '';
+          const library = loadHarnessLibrary(harnessFile);
+          const selected = library.harnesses.find((harness) => harness.id === harnessId);
+          if (!selected) return fail(res, 404, 'Unknown Harness');
+          const current = typeof selected.components?.[target] === 'string' ? selected.components[target].trim() : '';
           const value = mode === 'append' && current ? `${current}\n\n${preset.content}` : preset.content;
-          const updated = { ...harness, systemPrompts: { ...harness.systemPrompts, [target]: value } };
-          saveHarness(updated, harnessFile);
-          return json(res, 200, { ok: true, harness: updated, preset: { id: preset.id, title: preset.title, source: preset.source } });
+          const updated = updateHarness(library, harnessId, { components: { [target]: value } });
+          saveHarnessLibrary(library, harnessFile);
+          return json(res, 200, {
+            ok: true,
+            harness: { ...updated, systemPrompts: updated.components },
+            preset: { id: preset.id, title: preset.title, source: preset.source },
+          });
         }
         if (url.pathname === '/admin/harness' && req.method === 'POST') {
           const config = await readJson(req);
@@ -338,8 +399,14 @@ export function createServer(runtime, quota, {
       }
 
       // Apply harness defaults (aliases, generation params, stream preference)
-      body = applyHarness(body);
-      const scope = { ...scopeForLocalKey(runtime.routing, localKey), settings: runtime.settings };
+      const harnessLibrary = loadHarnessLibrary(harnessFile);
+      const selectedHarness = harnessById(harnessLibrary, localKey.harnessId);
+      body = applyHarnessConfig(body, selectedHarness);
+      const scope = {
+        ...scopeForLocalKey(runtime.routing, localKey),
+        settings: runtime.settings,
+        harnessHeaders: selectedHarness.components.headers,
+      };
 
       const abort = new AbortController();
       req.on('close', () => {

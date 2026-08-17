@@ -1,17 +1,20 @@
 # Sakana AI
 
-## Decision
+## Access
 
-Sakana AI is a direct API-key provider in SubChain. Use
-`SUBCHAIN_SAKANA_API_KEY` or `SAKANA_API_KEY`.
+Use `SUBCHAIN_SAKANA_API_KEY` or `SAKANA_API_KEY` from the service environment,
+an ignored override, or another approved private source. Never put the value in
+routing metadata, logs, screenshots, or documentation.
 
-## Setup
+## Ping
 
-1. Obtain an API key using the provider's authorized developer flow.
-2. Keep it in the service environment or ignored local override file.
-3. Select Sakana AI and a model from the Chain dropdowns, or assign a local key
-   directly to Sakana on the Access page.
-4. Test through a scoped local key without logging authorization headers.
+Press **Ping** to validate the account, discover current models, and capture any
+provider quota headers. Missing quota data means unknown.
 
-When API terms or model availability matter, re-check Sakana's current official
-documentation before release.
+## Verify
+
+1. Press **Ping** and inspect only the sanitized account result.
+2. Assign Sakana or a chain containing it to a dedicated local key.
+3. Confirm scoped `/v1/models`, then send one minimal completion.
+4. Recheck current official model availability and terms before relying on a
+   fallback model entry.

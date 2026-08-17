@@ -3,10 +3,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT } from './config.js';
+import { resolveDataDir } from './storage.js';
 
-const HARNESS_FILE = path.join(ROOT, 'harness.config.json');
+const LEGACY_HARNESS_FILE = path.join(ROOT, 'harness.config.json');
 
-const TEXT_COMPONENTS = [
+export function resolveHarnessFile({ dataDir = resolveDataDir() } = {}) {
+  return path.join(dataDir, 'harnesses.json');
+}
+
+export const TEXT_COMPONENTS = [
   'identity',
   'operatingInstructions',
   'safetyPolicy',
@@ -16,6 +21,25 @@ const TEXT_COMPONENTS = [
   'behavioralMode',
   'persona',
 ];
+
+const BLOCKED_HEADERS = new Set([
+  'authorization', 'proxy-authorization', 'cookie', 'set-cookie', 'host',
+  'content-length', 'connection', 'transfer-encoding', 'upgrade', 'x-api-key',
+  'api-key', 'proxy-authenticate', 'www-authenticate',
+]);
+
+/** Keep user-selected HTTP metadata away from credentials and framing controls. */
+export function sanitizeHarnessHeaders(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+  const headers = {};
+  for (const [name, value] of Object.entries(input).slice(0, 20)) {
+    const lower = name.toLowerCase();
+    if (!/^[a-z0-9-]{1,64}$/i.test(name) || BLOCKED_HEADERS.has(lower)) continue;
+    if (typeof value !== 'string' || value.length > 1024 || /[\r\n]/.test(value)) continue;
+    headers[name] = value;
+  }
+  return headers;
+}
 
 function blankComponents() {
   return {
@@ -71,7 +95,7 @@ function normalizeComponents(input = {}) {
   normalized.generation = { ...defaults.generation, ...(source.generation || input.generation || {}) };
   normalized.infrastructure = { ...defaults.infrastructure, ...(source.infrastructure || input.infrastructure || {}) };
   normalized.aliases = source.aliases && typeof source.aliases === 'object' && !Array.isArray(source.aliases) ? { ...source.aliases } : {};
-  normalized.headers = source.headers && typeof source.headers === 'object' && !Array.isArray(source.headers) ? { ...source.headers } : {};
+  normalized.headers = sanitizeHarnessHeaders(source.headers);
   return normalized;
 }
 
@@ -97,8 +121,18 @@ function normalizeLibrary(raw) {
 }
 
 /** Load a named Harness library, migrating the former singleton shape in memory. */
-export function loadHarnessLibrary(file = HARNESS_FILE) {
-  if (!fs.existsSync(file)) return normalizeLibrary(null);
+export function loadHarnessLibrary(file = resolveHarnessFile()) {
+  if (!fs.existsSync(file)) {
+    const isDefaultFile = path.resolve(file) === path.resolve(resolveHarnessFile());
+    if (isDefaultFile && fs.existsSync(LEGACY_HARNESS_FILE)) {
+      try {
+        const migrated = normalizeLibrary(JSON.parse(fs.readFileSync(LEGACY_HARNESS_FILE, 'utf8')));
+        saveHarnessLibrary(migrated, file);
+        return migrated;
+      } catch {}
+    }
+    return normalizeLibrary(null);
+  }
   try {
     return normalizeLibrary(JSON.parse(fs.readFileSync(file, 'utf8')));
   } catch {
@@ -107,7 +141,7 @@ export function loadHarnessLibrary(file = HARNESS_FILE) {
 }
 
 /** Save private Harness configuration atomically. */
-export function saveHarnessLibrary(library, file = HARNESS_FILE) {
+export function saveHarnessLibrary(library, file = resolveHarnessFile()) {
   const normalized = normalizeLibrary(library);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
@@ -166,10 +200,13 @@ export function applyHarnessConfig(body, harness) {
   if (generation.top_k !== null && generation.top_k !== undefined && next.top_k === undefined) next.top_k = generation.top_k;
   if (generation.max_tokens !== null && generation.max_tokens !== undefined && next.max_tokens === undefined) next.max_tokens = generation.max_tokens;
   if (generation.stop_sequences?.length && next.stop === undefined) next.stop = generation.stop_sequences;
+  if (generation.effort && next.reasoning_effort === undefined) next.reasoning_effort = generation.effort;
 
   if (components.infrastructure.stream !== null && components.infrastructure.stream !== undefined && next.stream === undefined) {
     next.stream = components.infrastructure.stream;
   }
+  if (components.infrastructure.service_tier && next.service_tier === undefined) next.service_tier = components.infrastructure.service_tier;
+  if (components.infrastructure.user_id && next.user === undefined) next.user = components.infrastructure.user_id;
 
   const prompts = TEXT_COMPONENTS
     .map((key) => components[key])
@@ -182,11 +219,11 @@ export function applyHarnessConfig(body, harness) {
 }
 
 // Compatibility helpers for callers that still address the Default Harness directly.
-export function loadHarness(file = HARNESS_FILE) {
+export function loadHarness(file = resolveHarnessFile()) {
   return harnessById(loadHarnessLibrary(file)).components;
 }
 
-export function saveHarness(config, file = HARNESS_FILE) {
+export function saveHarness(config, file = resolveHarnessFile()) {
   const library = loadHarnessLibrary(file);
   const source = config?.components || config || {};
   const legacy = config?.systemPrompts || {};
@@ -203,6 +240,6 @@ export function saveHarness(config, file = HARNESS_FILE) {
   saveHarnessLibrary(library, file);
 }
 
-export function applyHarness(body, file = HARNESS_FILE) {
+export function applyHarness(body, file = resolveHarnessFile()) {
   return applyHarnessConfig(body, loadHarness(file));
 }

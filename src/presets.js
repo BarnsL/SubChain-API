@@ -26,6 +26,20 @@ export const PRESET_SOURCES = [
 ];
 
 const PRESET_ID = (source, file, entry) => Buffer.from(JSON.stringify([source, file, entry]), 'utf8').toString('base64url');
+const CATALOG_CACHE = new Map();
+const COMPONENT_ORDER = [
+  'identity', 'operatingInstructions', 'safetyPolicy', 'toolPolicy',
+  'reasoningPolicy', 'outputStyle', 'behavioralMode', 'persona',
+];
+const COMPONENT_RULES = [
+  ['toolPolicy', /\b(tool|tools|function|mcp|browser|shell|terminal|command|permission)\b/i],
+  ['safetyPolicy', /\b(safety|safe|guardrail|policy|security|harm|refusal|refuse)\b/i],
+  ['reasoningPolicy', /\b(reason|reasoning|think|planning|planner|chain.of.thought|deliberat)\b/i],
+  ['outputStyle', /\b(output|format|formatting|markdown|json|xml|concise|verbosity|style)\b/i],
+  ['persona', /\b(persona|personality|character|voice|tone|roleplay)\b/i],
+  ['behavioralMode', /\b(mode|behavior|behaviour|interaction|workflow)\b/i],
+  ['identity', /\b(identity|you are|system prompt|assistant|agent)\b/i],
+];
 const safeSource = (source) => typeof source === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(source);
 const safeFile = (file) => typeof file === 'string' && file === path.posix.normalize(file) && !file.startsWith('../') && !file.startsWith('/');
 
@@ -58,10 +72,37 @@ function importedFile(root, source, file) {
   return resolved.startsWith(sourceRoot + path.sep) ? resolved : null;
 }
 
+export function classifyPreset(entry) {
+  const searchable = `${entry.title || ''}\n${entry.description || ''}\n${entry.file || ''}`;
+  const matched = COMPONENT_RULES.filter(([, pattern]) => pattern.test(searchable)).map(([component]) => component);
+  const functions = COMPONENT_ORDER.filter((component) => matched.includes(component));
+  if (!functions.length) functions.push('operatingInstructions');
+  return {
+    ...entry,
+    suggestedComponent: matched[0] || 'operatingInstructions',
+    functions,
+  };
+}
+
 function catalogFromPrivateData(dataDir) {
   const root = privatePresetRoot(dataDir);
+  const indexFile = path.join(root, 'index.json');
+  let signature;
+  try {
+    const stat = fs.statSync(indexFile);
+    signature = `${stat.mtimeMs}:${stat.size}`;
+    const cached = CATALOG_CACHE.get(path.resolve(dataDir));
+    if (cached?.signature === signature) return cached.entries;
+    try {
+      const persisted = readJson(path.join(root, 'catalog.json'));
+      if (persisted?.schemaVersion === 1 && persisted.indexSignature === signature && Array.isArray(persisted.entries)) {
+        CATALOG_CACHE.set(path.resolve(dataDir), { signature, entries: persisted.entries });
+        return persisted.entries;
+      }
+    } catch {}
+  } catch { return []; }
   let index;
-  try { index = readJson(path.join(root, 'index.json')); } catch { return []; }
+  try { index = readJson(indexFile); } catch { return []; }
   if (!Array.isArray(index?.sources)) return [];
 
   const entries = [];
@@ -95,20 +136,35 @@ function catalogFromPrivateData(dataDir) {
       }
     }
   }
-  return entries.sort((left, right) => left.source.localeCompare(right.source) || left.title.localeCompare(right.title));
+  const classified = entries
+    .map(classifyPreset)
+    .sort((left, right) => left.suggestedComponent.localeCompare(right.suggestedComponent)
+      || left.source.localeCompare(right.source)
+      || left.title.localeCompare(right.title));
+  const catalogFile = path.join(root, 'catalog.json');
+  const temporary = `${catalogFile}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify({ schemaVersion: 1, indexSignature: signature, entries: classified })}\n`, { encoding: 'utf8', mode: 0o600 });
+  fs.rmSync(catalogFile, { force: true });
+  fs.renameSync(temporary, catalogFile);
+  CATALOG_CACHE.set(path.resolve(dataDir), { signature, entries: classified });
+  return classified;
 }
 
 /** List private, inert preset metadata for the loopback Harness picker. */
-export function listPresetEntries({ dataDir = resolveDataDir(), source = null, query = '', limit = 50 } = {}) {
+export function listPresetEntries({ dataDir = resolveDataDir(), source = null, component = null, query = '', offset = 0, limit = 50 } = {}) {
   const all = catalogFromPrivateData(dataDir);
   const normalizedSource = typeof source === 'string' && source ? source : null;
   const needle = String(query || '').trim().toLocaleLowerCase();
   const matching = all.filter((entry) =>
     (!normalizedSource || entry.source === normalizedSource) &&
+    (!component || entry.functions.includes(component)) &&
     (!needle || `${entry.title}\n${entry.description}\n${entry.file}`.toLocaleLowerCase().includes(needle)),
   );
   const sources = [...new Set(all.map((entry) => entry.source))].map((id) => ({ id, count: all.filter((entry) => entry.source === id).length }));
-  return { total: matching.length, sources, items: matching.slice(0, Math.max(1, Math.min(Number(limit) || 50, 100))) };
+  const components = COMPONENT_ORDER.map((id) => ({ id, count: all.filter((entry) => entry.functions.includes(id)).length }));
+  const start = Math.max(0, Number(offset) || 0);
+  const pageSize = Math.max(1, Math.min(Number(limit) || 50, 100));
+  return { total: matching.length, offset: start, limit: pageSize, sources, components, items: matching.slice(start, start + pageSize) };
 }
 
 /** Read exactly one catalogue-selected inert prompt. Paths and entries are checked against the private manifest. */
@@ -203,5 +259,7 @@ export function importAllPresets(options = {}) {
   const presetDir = path.join(dataDir, 'presets');
   fs.mkdirSync(presetDir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(presetDir, 'index.json'), `${JSON.stringify(index, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  CATALOG_CACHE.delete(path.resolve(dataDir));
+  catalogFromPrivateData(dataDir);
   return index;
 }

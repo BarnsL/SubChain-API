@@ -74,6 +74,28 @@ test('admin routes are limited to loopback peers', () => {
   assert.equal(isLoopbackAddress('192.168.1.20'), false);
 });
 
+test('admin mutations reject cross-site and non-JSON browser requests', async () => {
+  const server = createServer(runtime(), new QuotaTracker(), { ui: true });
+  const port = await listen(server);
+  try {
+    const crossSite = await fetch(`http://127.0.0.1:${port}/admin/local-keys`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' },
+      body: JSON.stringify({ name: 'Blocked', target: { type: 'provider', id: 'google' } }),
+    });
+    assert.equal(crossSite.status, 403);
+
+    const simpleForm = await fetch(`http://127.0.0.1:${port}/admin/local-keys`, {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain' },
+      body: JSON.stringify({ name: 'Blocked', target: { type: 'provider', id: 'google' } }),
+    });
+    assert.equal(simpleForm.status, 415);
+  } finally {
+    await close(server);
+  }
+});
+
 test('provider account routes rename and manually Ping exactly one subscription', async () => {
   const value = runtime();
   const account = {
@@ -108,7 +130,9 @@ test('provider account routes rename and manually Ping exactly one subscription'
     assert.equal(renamed.status, 200);
     assert.equal((await renamed.json()).account.name, 'Primary Gemini');
 
-    const pinged = await fetch(`http://127.0.0.1:${port}/admin/providers/google/ping`, { method: 'POST' });
+    const pinged = await fetch(`http://127.0.0.1:${port}/admin/providers/google/ping`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+    });
     assert.equal(pinged.status, 200);
     assert.equal((await pinged.json()).account.health, 'ready');
     assert.equal(pingCount, 1);
@@ -145,6 +169,85 @@ test('the loopback admin API lists and reads only imported preset entries', asyn
     assert.equal(applied.status, 200);
     assert.equal((await applied.json()).harness.systemPrompts.persona, 'fixture preset body');
     assert.equal(JSON.parse(fs.readFileSync(harnessFile, 'utf8')).harnesses[0].components.persona, 'fixture preset body');
+  } finally {
+    await close(server);
+  }
+});
+
+test('named Harnesses can mix preset components, attach to a local key, and cannot be deleted while assigned', async () => {
+  const value = runtime();
+  const harnessFile = path.join(value.presetDataDir, 'harness-library.json');
+  const server = createServer(value, new QuotaTracker(), { ui: true, harnessFile });
+  const port = await listen(server);
+  try {
+    const createdResponse = await fetch(`http://127.0.0.1:${port}/admin/harnesses`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Research Safe' }),
+    });
+    assert.equal(createdResponse.status, 201);
+    const created = (await createdResponse.json()).harness;
+
+    const updatedResponse = await fetch(`http://127.0.0.1:${port}/admin/harnesses/${created.id}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ components: { identity: 'Research assistant' } }),
+    });
+    assert.equal((await updatedResponse.json()).harness.components.identity, 'Research assistant');
+
+    const catalogue = await (await fetch(`http://127.0.0.1:${port}/admin/presets?query=sample`)).json();
+    const applied = await fetch(`http://127.0.0.1:${port}/admin/harness/preset`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ harnessId: created.id, id: catalogue.items[0].id, target: 'toolPolicy', mode: 'replace' }),
+    });
+    assert.equal((await applied.json()).harness.components.toolPolicy, 'fixture preset body');
+
+    const assigned = await fetch(`http://127.0.0.1:${port}/admin/local-keys/default`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ harnessId: created.id }),
+    });
+    assert.equal((await assigned.json()).localKey.harnessId, created.id);
+
+    const blocked = await fetch(`http://127.0.0.1:${port}/admin/harnesses/${created.id}`, { method: 'DELETE' });
+    assert.equal(blocked.status, 409);
+
+    const library = await (await fetch(`http://127.0.0.1:${port}/admin/harnesses`)).json();
+    assert.deepEqual(library.harnesses.map((harness) => harness.id), ['default', created.id]);
+  } finally {
+    await close(server);
+  }
+});
+
+test('each local key applies its selected Harness before a managed provider receives the request', async () => {
+  const value = runtime();
+  value.routing.chains[0].links = [{ provider: 'openai-codex', model: 'gpt-test' }];
+  value.routing.localKeys[0].harnessId = 'research';
+  const harnessFile = path.join(value.presetDataDir, 'selected-harness.json');
+  fs.writeFileSync(harnessFile, JSON.stringify({
+    schemaVersion: 2,
+    harnesses: [
+      { id: 'default', name: 'Default Harness', components: {} },
+      { id: 'research', name: 'Research', components: { identity: 'Selected Harness identity' } },
+    ],
+  }));
+  let received;
+  const managedTransports = {
+    has: () => true,
+    async request(_transport, link, body) {
+      received = body;
+      return new Response(JSON.stringify({
+        id: 'chatcmpl-test', object: 'chat.completion', model: link.model,
+        choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+      }), { headers: { 'content-type': 'application/json' } });
+    },
+  };
+  const server = createServer(value, new QuotaTracker(), { ui: true, harnessFile, managedTransports });
+  const port = await listen(server);
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer default-token', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'auto', messages: [{ role: 'user', content: 'hello' }] }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(received.messages[0].content, 'Selected Harness identity');
   } finally {
     await close(server);
   }

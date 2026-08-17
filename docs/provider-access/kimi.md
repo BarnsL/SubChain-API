@@ -1,19 +1,21 @@
 # Kimi
 
-## Decision
+## Access
 
-Kimi's supported SubChain path is a Kimi API key. Supply it as
-`SUBCHAIN_KIMI_API_KEY` or `KIMI_API_KEY`. Provider app discovery is optional
-and must be treated as a convenience, not a source to disclose in logs.
+Use a Kimi API key through `SUBCHAIN_KIMI_API_KEY` or `KIMI_API_KEY`. SubChain
+can also read the supported Kimi provider application's local key on the
+platform where that application exposes it. The dashboard reports only
+`provider application`, never the file location or value.
 
-## Setup
+## Ping
 
-1. Obtain an API key through Kimi's authorized account flow.
-2. Set one environment variable in the service environment or an ignored local
-   `.env` override.
-3. Select Kimi and a model from the Chain page dropdowns.
-4. Confirm the provider reports a generic credential state, then make a
-   redacted local test request.
+Press **Ping** to validate the key, discover current models, and capture any
+provider quota headers. If the provider application rotates its key, Ping will
+report the sanitized failure until the authorized source is refreshed.
 
-If a provider app rotates its key, update the authorized source and restart the
-service when the environment was changed.
+## Verify
+
+1. Press **Ping** and confirm the current model list.
+2. Assign Kimi or a chain containing it to a dedicated local key.
+3. Confirm scoped `/v1/models`, then send one minimal completion.
+4. Confirm observed usage increments without logging response content.

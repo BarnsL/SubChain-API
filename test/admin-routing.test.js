@@ -77,3 +77,12 @@ test('provider inventory does not probe every unused numbered credential slot', 
   assert.equal(calls.includes('google'), true);
   assert.equal(calls.some((providerId) => /\d+$/.test(providerId)), false);
 });
+
+test('a local key can target one numbered provider subscription directly', () => {
+  const runtime = makeRuntime();
+  const created = addLocalKey(runtime, {
+    name: 'Second Google account',
+    target: { type: 'provider', id: 'google1' },
+  });
+  assert.deepEqual(created.key.target, { type: 'provider', id: 'google1' });
+});

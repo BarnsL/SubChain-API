@@ -1,45 +1,53 @@
 # Provider access playbook
 
-This folder is the concise, source-adjacent standard for adding or operating a
-SubChain provider. It replaces machine-specific recipes with portable rules.
+These guides are the source-adjacent operating standard for SubChain provider
+access. They contain portable procedures, not machine-specific credential
+folklore.
 
 ## Agent contract
 
-1. Prefer the provider's documented API or authorized developer credential.
-2. Never extract browser sessions, consumer-app cookies, or undocumented client
-   tokens for a proxy.
-3. Add an explicit `SUBCHAIN_*` override and the provider's conventional
-   environment variable only when the provider supports that credential.
-4. Keep the token outside the repository. Report only its source category, not
-   its value or pathname.
-5. Verify with a local request fixture before documenting the provider as
-   working. Live provider calls require the owner's approval and must not print
-   secrets.
-6. State the provider's prompt-processing jurisdiction when it is known from an
-   authoritative provider source. Do not infer it.
+1. Prefer a documented API or documented managed-client protocol.
+2. Let a managed client own its sign-in, tokens, refresh, and logout. Do not
+   copy OAuth tokens when a supported local integration exists.
+3. Keep credentials outside the repository. Report only a generic source
+   category, never a value, account identity, or absolute pathname.
+4. Probe models, health, and quotas with a bounded read-only operation. Store
+   only normalized allowlisted fields.
+5. Treat an unavailable quota as unknown, not unlimited.
+6. Verify provider routing through a scoped local key before declaring the lane
+   working. A live provider request must not print secrets or response content.
 
 ## Portable source configuration
 
-The resolver is cross-platform and never embeds a machine path. A user may opt
-in to an existing private credential directory with
-`SUBCHAIN_CREDENTIALS_DIR`, or a private environment file with
-`SUBCHAIN_CREDENTIAL_ENV_FILE`. Both values belong in ignored local
-configuration. The dashboard reports only `credential directory`,
-`credential file`, `provider application`, `environment`, or `platform store`.
+Direct API credentials can come from an explicit `SUBCHAIN_*` override, a
+conventional provider environment variable, an approved private credential
+directory, an approved private environment file, a supported provider
+application, or a platform-native store. `.env` is an ignored override layer.
+The UI reports only `override`, `environment`, `credential file`, `credential
+directory`, `provider application`, `platform store`, or `managed client`.
 
-One unnumbered family credential creates one candidate. Numbered provider slots
-are independent and require their own `SUBCHAIN_<PROVIDER><N>_API_KEY` value
-(or an Anthropic OAuth slot override). This prevents a single token from being
-silently duplicated across ten slots.
+Numbered direct-credential accounts are independent. Each additional account
+requires its own numbered `SUBCHAIN_<PROVIDER><N>_API_KEY` or provider-specific
+OAuth override. The resolver never duplicates one family credential into ten
+accounts.
 
-| Provider | SubChain override | Conventional variable | Route |
-|---|---|---|---|
-| Anthropic | `SUBCHAIN_ANTHROPIC_OAUTH_TOKEN` | `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_TOKEN` | [anthropic.md](anthropic.md) |
-| OpenAI API | `SUBCHAIN_OPENAI_API_KEY` | `OPENAI_API_KEY` | [openai-codex.md](openai-codex.md) |
-| Kimi | `SUBCHAIN_KIMI_API_KEY` | `KIMI_API_KEY` | [kimi.md](kimi.md) |
-| Zhipu AI GLM | `SUBCHAIN_ZHIPU_API_KEY` | `ZHIPUAI_API_KEY` or `GLM_API_KEY` | [zhipu.md](zhipu.md) |
-| Sakana AI | `SUBCHAIN_SAKANA_API_KEY` | `SAKANA_API_KEY` | [sakana.md](sakana.md) |
+| Provider lane | Access source | Guide |
+|---|---|---|
+| Anthropic | authorized OAuth or direct environment source | [anthropic.md](anthropic.md) |
+| OpenAI Codex | Codex-owned managed ChatGPT sign-in | [openai-codex.md](openai-codex.md) |
+| OpenAI API | `SUBCHAIN_OPENAI_API_KEY` or `OPENAI_API_KEY` | [openai-codex.md](openai-codex.md) |
+| Kimi | `SUBCHAIN_KIMI_API_KEY`, `KIMI_API_KEY`, or supported provider app | [kimi.md](kimi.md) |
+| Google Gemini API | `SUBCHAIN_GOOGLE_API_KEY`, `GOOGLE_API_KEY`, `GEMINI_API_KEY`, or `GEMINI_PAID_API_KEY` | [google.md](google.md) |
+| Google Antigravity | installed client-managed sign-in | [google.md](google.md) |
+| Zhipu AI GLM | `SUBCHAIN_ZHIPU_API_KEY`, `ZHIPUAI_API_KEY`, or `GLM_API_KEY` | [zhipu.md](zhipu.md) |
+| Sakana AI | `SUBCHAIN_SAKANA_API_KEY` or `SAKANA_API_KEY` | [sakana.md](sakana.md) |
 
-The resolver also handles Google through `SUBCHAIN_GOOGLE_API_KEY`,
-`GOOGLE_API_KEY`, `GEMINI_API_KEY`, or an explicitly configured
-`GEMINI_PAID_API_KEY` source.
+## Standard verification
+
+1. Start SubChain on loopback.
+2. Open Providers and press **Ping** for the account.
+3. Confirm sanitized health, model list, quota windows when available, and Ping
+   timestamp.
+4. Assign the account or a chain to a dedicated local key.
+5. Confirm `/v1/models` returns only that key's allowed models.
+6. Send one minimal completion and confirm observed usage increments.

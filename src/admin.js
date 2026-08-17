@@ -51,8 +51,9 @@ function assertTarget(runtime, target) {
     if (!runtime.routing.chains.some((chain) => chain.id === target.id)) {
       throw new Error(`unknown chain target: ${target.id}`);
     }
-  } else if (!FAMILIES.includes(target.id)) {
-    throw new Error(`unknown provider target: ${target.id}`);
+  } else {
+    try { providerDef(target.id); }
+    catch { throw new Error(`unknown provider target: ${target.id}`); }
   }
 }
 

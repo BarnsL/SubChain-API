@@ -390,7 +390,7 @@ Overview shows Endpoint, Links configured, and Requests served only. Provider st
 
 - [ ] **Step 7: Load the Impeccable craft floor, edit, then run its detector once**
 
-Run: `node C:\Users\Burgboy\.codex\skills\impeccable\scripts\detect.mjs --json src/webui/index.html src/webui/app.js src/webui/app.css`
+Run: `node <impeccable-skill>/scripts/detect.mjs --json src/webui/index.html src/webui/app.js src/webui/app.css`
 
 - [ ] **Step 8: Run focused and full tests**
 
