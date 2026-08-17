@@ -61,7 +61,7 @@ function isAnthropicQuotaError(link, status, detail) {
     /out of extra usage|You're out of/i.test(detail);
 }
 
-export function candidatesFor(scope, requestedModel) {
+export function candidatesFor(scope, requestedModel, { managedTransports } = {}) {
   const settings = scope.settings;
   const wanted = requestedModel && requestedModel !== 'auto' ? requestedModel : null;
   const out = [];
@@ -73,6 +73,17 @@ export function candidatesFor(scope, requestedModel) {
       const pinFamily = settings.pinnedProvider.replace(/\d+$/, '');
       const linkFamily = link.provider.replace(/\d+$/, '');
       if (linkFamily !== pinFamily) continue;
+    }
+
+    if (link.transport && link.transport !== 'http' && managedTransports?.has(link.transport)) {
+      out.push({
+        link,
+        provider: link.provider,
+        keyIndex: 0,
+        managed: true,
+        id: `${link.index}:${link.provider}:managed`,
+      });
+      continue;
     }
 
     const credential = resolveCredential(link.provider);
@@ -90,9 +101,9 @@ export function candidatesFor(scope, requestedModel) {
   return out;
 }
 
-export async function dispatch(scope, cooldowns, quota, body, { signal, onAttempt } = {}) {
+export async function dispatch(scope, cooldowns, quota, body, { signal, onAttempt, managedTransports } = {}) {
   const settings = scope.settings;
-  const candidates = candidatesFor(scope, body.model);
+  const candidates = candidatesFor(scope, body.model, { managedTransports });
   const attempts = [];
 
   if (!candidates.length) {
@@ -110,9 +121,9 @@ export async function dispatch(scope, cooldowns, quota, body, { signal, onAttemp
 
   const thresholdFiltered = ready.filter((c) => {
     const family = c.link.provider.replace(/\d+$/, '');
-    const threshold = settings.providerThresholds[family]
+    const threshold = settings.providerThresholds[c.link.provider] ?? settings.providerThresholds[family]
       ?? settings.fallbackThresholdPercent;
-    const usage = quota.get(family);
+    const usage = quota.get(c.link.provider);
     return !usage || usage.usagePercent < threshold;
   });
 
@@ -134,22 +145,25 @@ export async function dispatch(scope, cooldowns, quota, body, { signal, onAttemp
       onAttempt?.(attempt);
     };
 
-    const { endpoint, body: transformedBody, headers: transformHeaders } = transformRequest(body, link);
-    const url = `${link.baseUrl}${endpoint}`;
-
     let res;
     try {
-      res = await fetch(url, {
-        method: 'POST',
-        signal: combined,
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeader(credential, link),
-          ...transformHeaders,
-          ...link.headers,
-        },
-        body: JSON.stringify(transformedBody),
-      });
+      if (cand.managed) {
+        res = await managedTransports.request(link.transport, link, body, { signal: combined });
+      } else {
+        const { endpoint, body: transformedBody, headers: transformHeaders } = transformRequest(body, link);
+        const url = `${link.baseUrl}${endpoint}`;
+        res = await fetch(url, {
+          method: 'POST',
+          signal: combined,
+          headers: {
+            'Content-Type': 'application/json',
+            ...authHeader(credential, link),
+            ...transformHeaders,
+            ...link.headers,
+          },
+          body: JSON.stringify(transformedBody),
+        });
+      }
     } catch (err) {
       if (signal?.aborted) throw err;
       cooldowns.penalise(cand.id, `network: ${err.message}`);
@@ -158,6 +172,8 @@ export async function dispatch(scope, cooldowns, quota, body, { signal, onAttemp
     }
 
     quota.update(link.provider, res);
+    const quotaFamily = res.headers.get('x-subchain-quota-family');
+    if (res.status === 429 && quotaFamily) quota.markBucketExhausted(link.provider, quotaFamily);
 
     if (res.ok) {
       cooldowns.clear(cand.id);
@@ -174,7 +190,7 @@ export async function dispatch(scope, cooldowns, quota, body, { signal, onAttemp
     }
 
     if (isAnthropicQuotaError(link, res.status, detail)) {
-      quota.markExhausted(link.provider.replace(/\d+$/, ''));
+      quota.markExhausted(link.provider);
       cooldowns.penalise(cand.id, 'anthropic: quota exhausted', 600_000);
       record('quota-exhausted', `${res.status} ${detail}`);
       continue;

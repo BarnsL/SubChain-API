@@ -25,6 +25,7 @@ import {
 import { shortcutStatus, createShortcut, dismissShortcut } from './shortcut.js';
 import { authenticateLocalKey, rotateLocalKey, scopeForLocalKey, tokenForLocalKey } from './routing.js';
 import { usageFromPayload } from './quota.js';
+import { providerDef } from './providers.js';
 
 const WEBUI_DIR = IS_SEA
   ? path.join(EXE_DIR, 'webui')
@@ -110,14 +111,17 @@ export function createServer(runtime, quota, {
   harnessFile,
   providerStatusStore = null,
   providerProbeService = null,
+  managedTransports = null,
   managedProviderAvailable = () => false,
 } = {}) {
   const cooldowns = new Cooldowns(runtime.settings.cooldownMs);
   const stats = { served: 0, failed: 0, startedAt: Date.now() };
+  const managedAvailable = (providerId) => managedProviderAvailable(providerId)
+    || Boolean(managedTransports?.has(providerDef(providerId).transport));
   const inventory = () => routingInventory(runtime, quota, {
     statusStore: providerStatusStore,
     providerProbeService,
-    managedProviderAvailable,
+    managedProviderAvailable: managedAvailable,
   });
 
   return http.createServer(async (req, res) => {
@@ -304,12 +308,13 @@ export function createServer(runtime, quota, {
       for (const l of scope.links) {
         if (seen.has(l.model)) continue;
         seen.add(l.model);
-        const keyCount = resolveKeys(l.provider).length;
+        const managed = l.transport !== 'http' && managedAvailable(l.provider);
+        const keyCount = managed ? 1 : resolveKeys(l.provider).length;
         data.push({
           id: l.model,
           object: 'model',
           owned_by: l.provider,
-          subchain: { keyCount, hasKey: keyCount > 0 },
+          subchain: { keyCount, hasKey: keyCount > 0, managed },
         });
       }
       return json(res, 200, { object: 'list', data }, { cors: true });
@@ -344,6 +349,7 @@ export function createServer(runtime, quota, {
       try {
         const { response, link, provider, keyIndex, attempts } = await dispatch(scope, cooldowns, quota, body, {
           signal: abort.signal,
+          managedTransports,
           onAttempt: (a) => {
             if (verbose || a.outcome !== 'ok') {
               console.log(

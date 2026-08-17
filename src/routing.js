@@ -162,6 +162,7 @@ function materializeLinks(links) {
       baseUrl: (link.baseUrl || provider.baseUrl).replace(/\/+$/, ''),
       headers: {},
       authType: provider.authType,
+      transport: provider.transport,
       transform: provider.transform,
       contextWindow: provider.contextWindow,
     };

@@ -13,6 +13,8 @@ import { createRoutingRuntime, ensureLocalKey, loadRouting } from '../src/routin
 import { createProviderStatusStore } from '../src/provider-status.js';
 import { createProviderProbeService } from '../src/provider-probes.js';
 import { routingInventory } from '../src/admin.js';
+import { createManagedTransports } from '../src/managed-transports.js';
+import { providerDef } from '../src/providers.js';
 
 const argv = IS_SEA ? process.argv.slice(1) : process.argv.slice(2);
 const flag = (name, fallback) => {
@@ -98,13 +100,19 @@ function startWorker() {
   const accessKey = ensureLocalKey(runtime);
   const quota = new QuotaTracker();
   const providerStatusStore = createProviderStatusStore();
-  const providerProbeService = createProviderProbeService({ statusStore: providerStatusStore });
+  const managedTransports = createManagedTransports();
+  const providerProbeService = createProviderProbeService({
+    statusStore: providerStatusStore,
+    managedProbes: managedTransports.probes,
+  });
 
   createServer(runtime, quota, {
     verbose: has('--verbose'),
     ui,
     providerStatusStore,
     providerProbeService,
+    managedTransports,
+    managedProviderAvailable: (providerId) => managedTransports.has(providerDef(providerId).transport),
   }).listen(port, host, () => {
     console.log(`subchain     http://${host}:${port}/v1`);
     if (ui) console.log(`dashboard    http://${host}:${port}/`);
@@ -119,7 +127,10 @@ function startWorker() {
     }
 
     setImmediate(() => {
-      const accounts = routingInventory(runtime, quota, { statusStore: providerStatusStore }).providers;
+      const accounts = routingInventory(runtime, quota, {
+        statusStore: providerStatusStore,
+        managedProviderAvailable: (providerId) => managedTransports.has(providerDef(providerId).transport),
+      }).providers;
       for (const account of accounts.filter((candidate) => candidate.hasCredential && !candidate.lastPingAt)) {
         providerProbeService.ping(account.id).catch(() => {});
       }

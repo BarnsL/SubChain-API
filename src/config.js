@@ -78,6 +78,7 @@ export function loadChain(file = DEFAULT_CHAIN) {
       baseUrl: (entry.baseUrl || def.baseUrl).replace(/\/+$/, ''),
       headers: {},
       authType: def.authType,
+      transport: def.transport,
       transform: def.transform,
       contextWindow: def.contextWindow,
     };
@@ -100,6 +101,7 @@ export function loadChain(file = DEFAULT_CHAIN) {
 
 export function chainStatus(chain) {
   return chain.links.map((l) => {
+    const managed = l.transport && l.transport !== 'http';
     const accounts = resolveAccounts(l.provider);
     const slots = [...new Set(accounts.map((a) => a.provider))];
     return {
@@ -109,7 +111,8 @@ export function chainStatus(chain) {
       slots,
       accountCount: slots.length,
       keyCount: accounts.length,
-      hasKey: accounts.length > 0,
+      hasKey: managed || accounts.length > 0,
+      managed,
     };
   });
 }

@@ -123,6 +123,18 @@ export class QuotaTracker {
     }
   }
 
+  markBucketExhausted(providerId, bucketId, label = bucketId) {
+    const existing = this.ensure(providerId);
+    const bucket = normalizeBucket({ id: bucketId, label, status: 'exhausted', usedPercent: 100 });
+    const index = existing.quotas.findIndex((candidate) => candidate.id === bucket.id);
+    if (index === -1) existing.quotas.push(bucket);
+    else existing.quotas[index] = { ...existing.quotas[index], ...bucket };
+    existing.usagePercent = existing.quotas.reduce((maximum, candidate) => Math.max(maximum, candidate.usedPercent || 0), 0);
+    existing.isExhausted = true;
+    existing.lastChecked = Date.now();
+    return existing;
+  }
+
   snapshot() {
     const now = Date.now();
     return [...this.providers.values()].map((provider) => ({

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const routingModule = await import('../src/routing.js').catch(() => ({}));
-const { loadRouting, migrateRouting, validateRouting } = routingModule;
+const { loadRouting, migrateRouting, scopeForLocalKey, validateRouting } = routingModule;
 
 function makeTempConfig(legacy) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'subchain-routing-'));
@@ -63,6 +63,20 @@ test('migrates schema version 2 local keys to the Default Harness', () => {
 
   assert.equal(migrated.schemaVersion, 3);
   assert.equal(migrated.localKeys[0].harnessId, 'default');
+});
+
+test('materialized managed links retain their native transport instead of an API endpoint credential', () => {
+  const routing = {
+    schemaVersion: 3,
+    chains: [{ id: 'codex', name: 'Codex', links: [{ provider: 'openai-codex', model: 'gpt-test' }] }],
+    localKeys: [{
+      id: 'codex', name: 'Codex', secretRef: 'local-key:codex',
+      target: { type: 'chain', id: 'codex' }, harnessId: 'default',
+    }],
+  };
+  const scope = scopeForLocalKey(routing, routing.localKeys[0]);
+  assert.equal(scope.links[0].transport, 'codex-app-server');
+  assert.equal(scope.links[0].baseUrl, 'managed://codex');
 });
 
 test('rejects an eleventh local key and a sixth link on a newly authored chain', () => {
