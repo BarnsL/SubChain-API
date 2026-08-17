@@ -1,5 +1,6 @@
 import { createHarnessExpansionState } from './ui-state.js';
-import { createSubscriptionLoginState, shouldPreserveSubscriptionCard, shouldShowSubscriptionLogin, subscriptionFocusTarget } from './subscription-login-state.js';
+import { createSubscriptionLoginState, shouldPreserveSubscriptionCard, shouldShowSubscriptionLogin } from './subscription-login-state.js';
+import { updateSubscriptionCard } from './subscription-card-dom.js';
 
 /* SubChain dashboard behaviour.
    Plain DOM, no framework. State refetched from /admin/state after any
@@ -24,6 +25,7 @@ const subscriptionLogin = createSubscriptionLoginState({
   onConnected: async () => {
     await refresh();
     toast('ChatGPT subscription connected and provider status refreshed');
+    subscriptionLogin.clearCompleted();
   },
   onCancelled: () => toast('ChatGPT connection cancelled'),
 });
@@ -161,7 +163,9 @@ function subscriptionPanel(provider) {
   if (!current) {
     return {
       action,
-      panel: `<p class="subscription-hint" id="connect-${esc(provider.id)}-hint">Connect through the official ChatGPT verification flow. SubChain never receives your ChatGPT password or tokens.</p>`,
+      panel: busy
+        ? `<section class="subscription-connect" id="connect-${esc(provider.id)}-hint" role="status" tabindex="-1" data-subscription-focus="starting"><div><h3>Starting ChatGPT connection</h3><p>Preparing the official verification flow.</p></div></section>`
+        : `<p class="subscription-hint" id="connect-${esc(provider.id)}-hint">Connect through the official ChatGPT verification flow. SubChain never receives your ChatGPT password or tokens.</p>`,
     };
   }
   if (current.status === 'pending') {
@@ -199,14 +203,9 @@ function renderSubscriptionLogin() {
   const provider = state?.providers?.find((candidate) => candidate.id === 'openai-codex');
   const card = provider && $('#providerList [data-provider="openai-codex"]');
   const loginState = subscriptionLogin.current();
-  if (!shouldShowSubscriptionLogin(provider, loginState) || !card) return;
-  const focus = document.activeElement?.closest?.('[data-provider="openai-codex"]')
-    ? document.activeElement.getAttribute('data-subscription-focus')
-    : null;
+  if (!card) return;
   const subscription = subscriptionPanel(provider);
-  $('[data-subscription-action]', card).innerHTML = subscription.action;
-  $('[data-subscription-panel]', card).innerHTML = subscription.panel;
-  if (focus) $(`[data-subscription-focus="${subscriptionFocusTarget(focus, loginState)}"]`, card)?.focus();
+  updateSubscriptionCard(card, subscription, loginState);
 }
 
 function providerCardMarkup(p) {

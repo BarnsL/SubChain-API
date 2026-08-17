@@ -26,6 +26,7 @@ export function shouldPreserveSubscriptionCard(providerId, state) {
 
 export function subscriptionFocusTarget(previous, state) {
   const status = state?.snapshot?.status;
+  if (!status && state?.busy) return 'starting';
   if (status === 'pending') return !state.busy && previous === 'cancel' ? 'cancel' : 'code';
   if (status === 'refreshing' || status === 'connected') return 'panel';
   if (status === 'refresh-error') return 'retry-ping';
@@ -156,5 +157,12 @@ export function createSubscriptionLoginState({
     return refreshProvider(id);
   };
 
-  return { current, start: begin, poll, cancel: cancelLogin, retryPing };
+  const clearCompleted = () => {
+    if (snapshot?.status !== 'connected') return current();
+    nextRequest();
+    setState(null, false);
+    return current();
+  };
+
+  return { current, start: begin, poll, cancel: cancelLogin, retryPing, clearCompleted };
 }

@@ -7,6 +7,7 @@ import { createSecretStore } from '../src/storage.js';
 import { createRoutingRuntime } from '../src/routing.js';
 
 const { createSubscriptionLoginState, shouldShowSubscriptionLogin, shouldPreserveSubscriptionCard, subscriptionFocusTarget } = await import('../src/webui/subscription-login-state.js');
+const { updateSubscriptionCard } = await import('../src/webui/subscription-card-dom.js');
 const { routingInventory } = await import('../src/admin.js');
 
 function deferred() {
@@ -60,6 +61,43 @@ function inventoryRuntime() {
     secretStore: createSecretStore({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'subchain-login-state-')) }),
     routing: { schemaVersion: 2, chains: [], localKeys: [] },
   });
+}
+
+function cardHarness() {
+  const document = { body: { id: 'body' }, activeElement: null };
+  const card = { slots: {}, targets: new Map() };
+  const rebuild = () => {
+    card.targets = new Map();
+    for (const markup of Object.values(card.slots)) {
+      for (const match of markup.matchAll(/data-subscription-focus="([^"]+)"/g)) {
+        const target = {
+          key: match[1],
+          getAttribute: (name) => name === 'data-subscription-focus' ? match[1] : null,
+          focus: () => { document.activeElement = target; },
+        };
+        card.targets.set(match[1], target);
+      }
+    }
+  };
+  const slot = (name) => ({
+    set innerHTML(markup) {
+      if (document.activeElement && card.contains(document.activeElement)) document.activeElement = document.body;
+      card.slots[name] = markup;
+      rebuild();
+    },
+  });
+  card.slots.action = '';
+  card.slots.panel = '';
+  card.querySelector = (selector) => {
+    if (selector === '[data-subscription-action]') return card.action;
+    if (selector === '[data-subscription-panel]') return card.panel;
+    const match = /data-subscription-focus="([^"]+)"/.exec(selector);
+    return match ? card.targets.get(match[1]) || null : null;
+  };
+  card.contains = (target) => [...card.targets.values()].includes(target);
+  card.action = slot('action');
+  card.panel = slot('panel');
+  return { card, document, focus: (key) => { document.activeElement = card.targets.get(key); } };
 }
 
 test('pending login polls once, keeps an unchanged code stable, and clears its timer on cancellation', async () => {
@@ -193,4 +231,42 @@ test('only the active pending subscription card is preserved during inventory re
   assert.equal(shouldPreserveSubscriptionCard('openai-codex', { snapshot: { status: 'pending' } }), true);
   assert.equal(shouldPreserveSubscriptionCard('google', { snapshot: { status: 'pending' } }), false);
   assert.equal(shouldPreserveSubscriptionCard('openai-codex', { snapshot: { status: 'refresh-error' } }), false);
+});
+
+test('two subscription-card renders hand focus from starting to the one-time code', () => {
+  const { card, document, focus } = cardHarness();
+  card.action.innerHTML = '<button data-subscription-focus="connect">Connect</button>';
+  focus('connect');
+
+  updateSubscriptionCard(card, {
+    action: '<button disabled data-subscription-focus="connect">Connecting</button>',
+    panel: '<section tabindex="-1" data-subscription-focus="starting">Starting ChatGPT connection</section>',
+  }, { snapshot: null, busy: true }, document);
+  assert.equal(document.activeElement?.key, 'starting');
+
+  updateSubscriptionCard(card, {
+    action: '',
+    panel: '<section><code tabindex="-1" data-subscription-focus="code">ABCD-1234</code></section>',
+  }, { snapshot: { status: 'pending' }, busy: false }, document);
+  assert.equal(document.activeElement?.key, 'code');
+});
+
+test('clearing completed local state lets later missing inventory show Connect again', async () => {
+  const { flow } = createFlow({ start: async () => ({ status: 'ready' }) });
+  await flow.start();
+  assert.equal(flow.current().snapshot.status, 'connected');
+  const readyProvider = routingInventory(inventoryRuntime(), null, {
+    statusStore: { list: () => [{ providerId: 'openai-codex', health: 'ready' }], get: () => ({ providerId: 'openai-codex', health: 'ready' }) },
+    managedProviderAvailable: () => true,
+  }).providers.find((candidate) => candidate.id === 'openai-codex');
+  assert.equal(shouldShowSubscriptionLogin(readyProvider, flow.current()), true);
+  flow.clearCompleted();
+  assert.equal(shouldShowSubscriptionLogin(readyProvider, flow.current()), false);
+
+  const provider = routingInventory(inventoryRuntime(), null, {
+    statusStore: { list: () => [{ providerId: 'openai-codex', health: 'missing' }], get: () => ({ providerId: 'openai-codex', health: 'missing' }) },
+    managedProviderAvailable: () => true,
+  }).providers.find((candidate) => candidate.id === 'openai-codex');
+  assert.equal(shouldShowSubscriptionLogin(provider, flow.current()), true);
+  assert.equal(flow.current().snapshot, null);
 });
