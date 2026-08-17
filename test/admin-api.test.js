@@ -47,6 +47,7 @@ test('admin state exposes routing metadata but never local tokens', async () => 
   try {
     const state = await fetch(`http://127.0.0.1:${port}/admin/state`);
     assert.equal(state.status, 200);
+    assert.equal(state.headers.get('cache-control'), 'no-store');
     const payload = await state.json();
     assert.equal(payload.localKeys[0].id, 'default');
     assert.equal(JSON.stringify(payload).includes('default-token'), false);
@@ -84,6 +85,7 @@ test('admin mutations reject cross-site and non-JSON browser requests', async ()
       body: JSON.stringify({ name: 'Blocked', target: { type: 'provider', id: 'google' } }),
     });
     assert.equal(crossSite.status, 403);
+    assert.equal(crossSite.headers.get('cache-control'), 'no-store');
 
     const simpleForm = await fetch(`http://127.0.0.1:${port}/admin/local-keys`, {
       method: 'POST',
@@ -130,6 +132,7 @@ test('OpenAI Codex enrollment routes expose only managed login snapshots', async
       method: 'POST', headers: { 'content-type': 'application/json' },
     });
     assert.equal(started.status, 200);
+    assert.equal(started.headers.get('cache-control'), 'no-store');
     assert.deepEqual(await started.json(), {
       status: 'pending',
       verificationUrl: 'https://auth.openai.com/codex/device',
@@ -139,6 +142,7 @@ test('OpenAI Codex enrollment routes expose only managed login snapshots', async
 
     const status = await fetch(connectPath);
     assert.equal(status.status, 200);
+    assert.equal(status.headers.get('cache-control'), 'no-store');
     assert.deepEqual(await status.json(), {
       status: 'pending',
       verificationUrl: 'https://auth.openai.com/codex/device',
@@ -150,6 +154,7 @@ test('OpenAI Codex enrollment routes expose only managed login snapshots', async
       method: 'POST', headers: { 'content-type': 'application/json' },
     });
     assert.equal(cancelled.status, 200);
+    assert.equal(cancelled.headers.get('cache-control'), 'no-store');
     assert.deepEqual(await cancelled.json(), { status: 'cancelled' });
     assert.deepEqual(calls, [
       ['start', 'codex-app-server'],
@@ -181,6 +186,43 @@ test('OpenAI Codex enrollment rejects cross-site requests before starting login'
     });
     assert.equal(response.status, 403);
     assert.equal(startCount, 0);
+  } finally {
+    await close(server);
+  }
+});
+
+test('OpenAI Codex enrollment reports an unavailable managed service without caching', async () => {
+  const server = createServer(runtime(), new QuotaTracker(), { ui: true });
+  const port = await listen(server);
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/admin/providers/openai-codex/connect`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(response.status, 503);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal((await response.json()).error.message, 'Managed provider client is unavailable');
+  } finally {
+    await close(server);
+  }
+});
+
+test('OpenAI Codex enrollment masks managed service failures without caching', async () => {
+  const managedTransports = {
+    async startLogin() {
+      throw new Error('private transport failure');
+    },
+  };
+  const server = createServer(runtime(), new QuotaTracker(), { ui: true, managedTransports });
+  const port = await listen(server);
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/admin/providers/openai-codex/connect`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(response.status, 500);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    const payload = await response.json();
+    assert.equal(payload.error.message, 'Internal server error');
+    assert.equal(JSON.stringify(payload).includes('private transport failure'), false);
   } finally {
     await close(server);
   }

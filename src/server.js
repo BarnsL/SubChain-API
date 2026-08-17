@@ -171,6 +171,7 @@ export function createServer(runtime, quota, {
 
     // ── Admin API ────────────────────────────────────────────────────
     if (ui && url.pathname.startsWith('/admin/')) {
+      res.setHeader('Cache-Control', 'no-store');
       try {
         if (!isLoopbackAddress(req.socket.remoteAddress)) {
           return fail(res, 403, 'Administrative routes are available only from the local machine');
