@@ -181,6 +181,27 @@ test('Ping failure keeps ChatGPT connected and offers a Ping retry', async () =>
   assert.equal(pings, 2);
 });
 
+test('dashboard refresh failure offers Retry Ping and retry success clears completed state', async () => {
+  let refreshes = 0;
+  let flow;
+  flow = createSubscriptionLoginState({
+    start: async () => ({ status: 'ready' }),
+    ping: async () => {},
+    onConnected: async () => {
+      refreshes += 1;
+      if (refreshes === 1) throw new Error('dashboard refresh failed');
+      flow.clearCompleted();
+    },
+  });
+
+  await flow.start();
+  assert.equal(flow.current().snapshot.status, 'refresh-error');
+
+  await flow.retryPing();
+  assert.equal(refreshes, 2);
+  assert.equal(flow.current().snapshot, null);
+});
+
 test('stale responses and duplicate starts cannot override a cancelled login', async () => {
   const starting = deferred();
   const polling = deferred();

@@ -3,6 +3,14 @@ import net from 'node:net';
 const MAX_RESTART_DELAY_MS = 30_000;
 const STABLE_WORKER_MS = 60_000;
 
+/** Select unprobed providers whose credential or managed runtime can answer. */
+export function providersForStartupProbe(providers, managedProviderAvailable = () => false) {
+  return providers.filter((provider) => !provider.lastPingAt && (
+    provider.hasCredential
+    || (provider.transport !== 'http' && managedProviderAvailable(provider.id))
+  ));
+}
+
 /** Return the bounded delay before the next unexpected worker restart. */
 export function restartDelayMs(failures) {
   return Math.min(1_000 * 2 ** Math.max(0, failures - 1), MAX_RESTART_DELAY_MS);

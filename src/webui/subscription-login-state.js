@@ -76,7 +76,7 @@ export function createSubscriptionLoginState({
       await ping();
       if (id !== requestId) return current();
       setState({ status: 'connected' }, false);
-      try { await onConnected(); } catch {}
+      await onConnected();
     } catch {
       if (id === requestId) setState({ status: 'refresh-error' }, false);
     }

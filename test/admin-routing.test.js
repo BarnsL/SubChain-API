@@ -108,3 +108,14 @@ test('managed provider inventory distinguishes an available runtime from a missi
   assert.equal(antigravity.hasCredential, true);
   assert.equal(antigravity.canConnectSubscription, false);
 });
+
+test('fresh provider inventory exposes ChatGPT enrollment when its managed runtime is available', () => {
+  const provider = routingInventory(makeRuntime(), null, {
+    statusStore: { list: () => [], get: () => null },
+    managedProviderAvailable: (providerId) => providerId === 'openai-codex',
+  }).providers.find((candidate) => candidate.id === 'openai-codex');
+
+  assert.equal(provider.health, 'missing');
+  assert.equal(provider.hasCredential, false);
+  assert.equal(provider.canConnectSubscription, true);
+});

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { loadChain, loadDotEnv, chainStatus, ROOT } from '../src/config.js';
 import { createServer } from '../src/server.js';
-import { installWorkerShutdown, isPortListening, superviseWorker } from '../src/supervisor.js';
+import { installWorkerShutdown, isPortListening, providersForStartupProbe, superviseWorker } from '../src/supervisor.js';
 import { QuotaTracker } from '../src/quota.js';
 import { IS_SEA } from '../src/runtime.js';
 import { createSecretStore } from '../src/storage.js';
@@ -129,11 +129,12 @@ function startWorker() {
     }
 
     setImmediate(() => {
+      const managedProviderAvailable = (providerId) => managedTransports.has(providerDef(providerId).transport);
       const accounts = routingInventory(runtime, quota, {
         statusStore: providerStatusStore,
-        managedProviderAvailable: (providerId) => managedTransports.has(providerDef(providerId).transport),
+        managedProviderAvailable,
       }).providers;
-      for (const account of accounts.filter((candidate) => candidate.hasCredential && !candidate.lastPingAt)) {
+      for (const account of providersForStartupProbe(accounts, managedProviderAvailable)) {
         providerProbeService.ping(account.id).catch(() => {});
       }
     });

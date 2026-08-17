@@ -125,7 +125,7 @@ export function routingInventory(runtime, quota, {
       hasCredential,
       canConnectSubscription: providerId === 'openai-codex'
         && managedRuntimeAvailable
-        && status?.health === 'missing',
+        && (!status || status.health === 'missing'),
       credentialSource: credential?.source || (managedAuthenticated ? 'provider-application' : null),
       models: status?.models?.length
         ? status.models
