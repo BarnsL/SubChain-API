@@ -13,11 +13,14 @@ subscription**. SubChain starts the documented Codex app-server
 `chatgptDeviceCode` flow. Open the displayed official verification URL and enter
 the displayed one-time code only on that page. Do not paste the code elsewhere.
 
-Codex owns OAuth storage and refresh. SubChain never reads, copies, persists,
-returns, or logs ChatGPT tokens or account identity. It does not use
-undocumented consumer endpoints. A pending connection can be cancelled. An
-expired, failed, or cancelled connection needs a new start. If Ping reports a
-refresh error after connection, retry Ping instead of reconnecting.
+Codex owns OAuth storage and refresh. The app-server `account/read` response
+enters SubChain only so it can allowlist account type, authentication status,
+plan, and required rate-limit data. SubChain does not access identity fields
+for use, retain, persist, log, or return them, and never copies ChatGPT tokens.
+It does not use undocumented consumer endpoints. A pending connection can be
+cancelled. An expired, failed, or cancelled connection needs a new start. If
+Ping reports a refresh error after connection, retry Ping instead of
+reconnecting.
 
 SubChain discovers the installed Codex command through a generic application
 location, the executable search path, or an explicit private runtime override.

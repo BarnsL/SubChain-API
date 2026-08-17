@@ -79,10 +79,13 @@ in [docs/provider-access](docs/provider-access/README.md).
 To enroll a missing OpenAI Codex account, select **Connect ChatGPT
 subscription** on its Providers card. Open the official verification page shown
 by the card and enter its one-time code there. Codex stores and refreshes the
-sign-in. SubChain receives neither the password, token, nor account identity.
-After completion, the card refreshes its normal Ping data. Assign a local key
-directly to OpenAI Codex, or to a chain containing it, then use `model: auto`
-or a model discovered for that key.
+sign-in. The app-server account response enters SubChain only so it can
+allowlist account type, authentication status, plan, and rate-limit data.
+SubChain does not access identity fields for use, retain, persist, log, or
+return them, and it never copies Codex tokens. After completion, the card
+refreshes its normal Ping data. Assign a local key directly to OpenAI Codex, or
+to a chain containing it, then use `model: auto` or a model discovered for that
+key.
 
 ## Harnesses
 
