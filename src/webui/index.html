@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SubChain</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔗</text></svg>" />
+<link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">🔗</div>
+      <div>
+        <div class="brand-name">SubChain</div>
+      </div>
+      <span class="brand-tag">API</span>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-item active" data-page="overview">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+        Overview
+      </button>
+      <button class="nav-item" data-page="access">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.5 12.5 8-8M16 7l2.5 2.5M19 4l2 2"/></svg>
+        Local keys
+      </button>
+      <button class="nav-item" data-page="providers">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/></svg>
+        Providers
+      </button>
+      <button class="nav-item" data-page="chain">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.8 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.8-1.7"/></svg>
+        Chain
+      </button>
+      <button class="nav-item" data-page="harness">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+        Harness
+      </button>
+
+      <div class="nav-label">Subscriptions</div>
+      <a class="nav-item" href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l2 2"/></svg>
+        Anthropic
+      </a>
+      <a class="nav-item" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 6-6 6 6 6M16 6l6 6-6 6"/></svg>
+        OpenAI Codex
+      </a>
+      <a class="nav-item" href="https://kimi.moonshot.cn/" target="_blank" rel="noopener noreferrer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>
+        Kimi Code
+      </a>
+      <a class="nav-item" href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10h-10Z"/><path d="M12 2v10"/></svg>
+        Google Gemini
+      </a>
+      <a class="nav-item" href="https://open.bigmodel.cn/" target="_blank" rel="noopener noreferrer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8h8v8H8z"/></svg>
+        Zhipu AI
+      </a>
+      <a class="nav-item" href="https://console.sakana.ai/" target="_blank" rel="noopener noreferrer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 3 14h8l-1 8 10-12h-8l1-8Z"/></svg>
+        Sakana AI
+      </a>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="nav-item" style="cursor:default">
+        <span id="serverDot" class="dot" style="color:var(--muted-foreground)"></span>
+        <span id="serverStatus">connecting…</span>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="container">
+
+      <div id="shortcutPrompt" class="callout shortcut-prompt hidden">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5"/></svg>
+        <div class="shortcut-prompt-body">
+          <div><strong>Add SubChain to the Start Menu?</strong> Creates one shortcut pointing at this
+            executable, so you can launch it without finding this folder again.</div>
+          <div class="shortcut-prompt-actions">
+            <button class="btn btn-sm btn-primary" id="btnShortcutCreate">Create shortcut</button>
+            <button class="btn btn-sm btn-ghost" id="btnShortcutDismiss">Not now</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Overview ─────────────────────────────────────────────── -->
+      <section class="page active" id="page-overview">
+        <h1>Overview</h1>
+        <p class="lede">
+          SubChain puts one OpenAI-compatible endpoint in front of an ordered chain of subscription
+          providers. Your apps point at this server with a single fixed key; it holds the real
+          credentials and walks the chain until something answers.
+        </p>
+
+        <div class="stat-grid">
+          <div class="stat"><div class="stat-label">Endpoint</div><div class="stat-value mono" style="font-size:15px" id="statEndpoint">—</div><div class="stat-sub">base URL for your apps</div></div>
+          <div class="stat"><div class="stat-label">Links configured</div><div class="stat-value" id="statReady">—</div><div class="stat-sub" id="statReadySub">credential state, not a live probe</div></div>
+          <div class="stat"><div class="stat-label">Candidates</div><div class="stat-value" id="statCandidates">—</div><div class="stat-sub">slot + key combinations</div></div>
+          <div class="stat"><div class="stat-label">Requests served</div><div class="stat-value" id="statServed">—</div><div class="stat-sub" id="statFailed">since start</div></div>
+        </div>
+
+        <div id="noKeysCallout" class="callout warn hidden" style="margin-top:18px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+          <div>
+            <strong>No credentials detected.</strong> Every request will fail until at least one
+            provider credential is found. Check <a href="#" data-goto="providers">Providers</a>.
+          </div>
+        </div>
+
+        <div class="section-head"><h2>Provider Status</h2><p>Subscription providers and their credential state.</p></div>
+        <div class="stat-grid" id="sourceCards"></div>
+
+        <div class="section-head"><h2>Cooling off</h2><p>Candidates temporarily skipped after a rate limit or error.</p></div>
+        <div id="coolingBox"></div>
+      </section>
+
+      <!-- ── Access key ───────────────────────────────────────────── -->
+      <section class="page" id="page-access">
+        <h1>Local API keys</h1>
+        <p class="lede">
+          Create up to ten independent keys for your local apps. Each key can reach one provider or
+          one ordered chain, while provider credentials remain local to this machine.
+        </p>
+
+        <div class="card" style="margin-bottom:18px">
+          <form id="addLocalKeyForm" class="form-row">
+            <label class="form-field grow">Key name<input class="input" name="name" maxlength="80" placeholder="Research apps" required /></label>
+            <label class="form-field">Feeds<select class="input" name="targetType"><option value="chain">a chain</option><option value="provider">one provider</option></select></label>
+            <label class="form-field grow">Destination<select class="input" name="targetId" id="newKeyTarget"></select></label>
+            <button class="btn btn-primary" type="submit">Add local key</button>
+          </form>
+          <p class="form-hint">Keys are shown only on this local dashboard. Rotating one never changes another key.</p>
+        </div>
+
+        <div id="localKeyList" class="stack"></div>
+
+        <div class="section-head"><h2>Connect an app</h2><p>Anything that speaks the OpenAI API works. Model <span class="mono">auto</span> lets the chain decide.</p></div>
+        <div class="card">
+          <div class="tabs" id="snippetTabs">
+            <button class="tab active" data-snip="ui">Editor / GUI</button>
+            <button class="tab" data-snip="curl">curl</button>
+            <button class="tab" data-snip="python">Python</button>
+            <button class="tab" data-snip="node">Node</button>
+            <button class="tab" data-snip="env">Env vars</button>
+          </div>
+          <pre id="snippet"></pre>
+        </div>
+      </section>
+
+      <!-- ── Providers ────────────────────────────────────────────── -->
+      <section class="page" id="page-providers">
+        <h1>Providers</h1>
+        <p class="lede">
+          Subscription providers with auto-detected credentials. Credentials are resolved from
+          explicit overrides, environment variables, conventional app locations, and platform-native
+          stores when available. The <span class="mono">.env</span> file is only an override layer.
+        </p>
+        <div id="providerList"></div>
+      </section>
+
+      <!-- ── Chain ────────────────────────────────────────────────── -->
+      <section class="page" id="page-chain">
+        <h1>Chain</h1>
+        <p class="lede">
+          A local key can feed one ordered chain. Create up to ten chains and up to five provider
+          subscriptions per new chain. The migrated default chain is retained for compatibility.
+        </p>
+
+        <div class="card" style="margin-bottom:18px">
+          <form id="addChainForm" class="form-row">
+            <label class="form-field grow">Chain name<input class="input" name="name" maxlength="80" placeholder="Coding fallback" required /></label>
+            <label class="form-field grow">First provider<select class="input" name="provider" id="newChainProvider"></select></label>
+            <label class="form-field grow">First model<select class="input" name="model" id="newChainModel"></select></label>
+            <button class="btn btn-primary" type="submit">Add chain</button>
+          </form>
+          <p class="form-hint">Provider and model are selected from menus so every saved link has a valid destination.</p>
+        </div>
+
+        <div id="chainList" class="stack"></div>
+      </section>
+
+      <!-- ── Harness ──────────────────────────────────────────────── -->
+      <section class="page" id="page-harness">
+        <h1>Harness</h1>
+        <p class="lede">
+          Configuration injected into every request before it reaches the chain. Model aliases,
+          generation defaults, and infrastructure settings live here.
+        </p>
+        <div id="harnessConfig"></div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<div id="toast"></div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

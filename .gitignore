@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+chain.config.json
+routing.config.json
+harness.config.json
+presets/
+credentials.json
+node_modules/
+dist/
+*.pem
+*.key

@@ -1,0 +1,51 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createSecretStore } from '../src/storage.js';
+import { createRoutingRuntime } from '../src/routing.js';
+
+const adminModule = await import('../src/admin.js');
+const { addChain, addChainLink, addLocalKey } = adminModule;
+
+function makeRuntime() {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'subchain-admin-'));
+  return createRoutingRuntime({
+    secretStore: createSecretStore({ dataDir }),
+    routing: {
+      schemaVersion: 2,
+      chains: [{ id: 'default', name: 'Default', migrated: true, links: [{ provider: 'google', model: 'gemini-example' }] }],
+      localKeys: [{ id: 'default', name: 'Default', secretRef: 'local-key:default', target: { type: 'chain', id: 'default' } }],
+    },
+  });
+}
+
+test('routing administration caps keys and chains at ten and new chains at five links', () => {
+  assert.equal(typeof addLocalKey, 'function', 'local-key administration must exist');
+  assert.equal(typeof addChain, 'function', 'chain administration must exist');
+  assert.equal(typeof addChainLink, 'function', 'chain-link administration must exist');
+  if (!addLocalKey || !addChain || !addChainLink) return;
+
+  const runtime = makeRuntime();
+  for (let index = 1; index < 10; index++) {
+    const created = addLocalKey(runtime, {
+      name: `Provider ${index}`,
+      target: { type: 'provider', id: 'zhipu' },
+    });
+    assert.match(created.token, /^sc-/);
+  }
+  assert.equal(runtime.routing.localKeys.length, 10);
+  assert.throws(() => addLocalKey(runtime, { name: 'Eleven', target: { type: 'provider', id: 'zhipu' } }), /at most 10 local keys/);
+
+  for (let index = 1; index < 10; index++) {
+    addChain(runtime, { name: `Chain ${index}`, link: { provider: 'sakana', model: `sakana-initial-${index}` } });
+  }
+  assert.equal(runtime.routing.chains.length, 10);
+  assert.throws(() => addChain(runtime, { name: 'Eleven', link: { provider: 'sakana', model: 'sakana-eleven' } }), /at most 10 chains/);
+
+  const target = runtime.routing.chains.find((chain) => chain.id === 'chain-1');
+  for (let index = 0; index < 4; index++) addChainLink(runtime, target.id, { provider: 'sakana', model: `sakana-${index}` });
+  assert.equal(target.links.length, 5);
+  assert.throws(() => addChainLink(runtime, target.id, { provider: 'sakana', model: 'sakana-5' }), /more than five links/);
+});

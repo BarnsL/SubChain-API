@@ -1,0 +1,16 @@
+{
+  "name": "subchain",
+  "version": "0.1.0",
+  "description": "A secure local OpenAI-compatible router for scoped provider chains",
+  "type": "module",
+  "exports": { ".": "./src/chain.js" },
+  "bin": { "subchain": "bin/subchain.mjs", "subchain-import-presets": "bin/import-presets.mjs" },
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node bin/subchain.mjs",
+    "test": "node --test test/*.test.js",
+    "import-presets": "node bin/import-presets.mjs",
+    "audit:public": "node scripts/audit-public-release.mjs"
+  },
+  "license": "MIT"
+}

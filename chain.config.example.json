@@ -1,0 +1,10 @@
+{
+  "migrated": false,
+  "requestTimeoutMs": 90000,
+  "cooldownMs": 60000,
+  "fallbackThresholdPercent": 90,
+  "mode": "chain",
+  "chain": [
+    { "provider": "google", "model": "gemini-2.5-flash" }
+  ]
+}
