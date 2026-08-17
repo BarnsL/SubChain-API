@@ -1,5 +1,6 @@
 const SNAPSHOT_KEYS = ['status', 'verificationUrl', 'userCode', 'expiresAt', 'message'];
 const RETRYABLE_LOGIN_STATUSES = new Set(['failed', 'cancelled', 'expired']);
+const ACTIVE_WORKFLOW_STATUSES = new Set(['pending', 'refreshing', 'connected', 'refresh-error']);
 
 function snapshotFor(value) {
   const snapshot = { status: String(value?.status || 'failed') };
@@ -11,6 +12,25 @@ function snapshotFor(value) {
 
 function sameSnapshot(first, second) {
   return SNAPSHOT_KEYS.every((key) => first?.[key] === second?.[key]);
+}
+
+export function shouldShowSubscriptionLogin(provider, state) {
+  return provider?.id === 'openai-codex' && Boolean(
+    provider.canConnectSubscription || ACTIVE_WORKFLOW_STATUSES.has(state?.snapshot?.status),
+  );
+}
+
+export function shouldPreserveSubscriptionCard(providerId, state) {
+  return providerId === 'openai-codex' && state?.snapshot?.status === 'pending';
+}
+
+export function subscriptionFocusTarget(previous, state) {
+  const status = state?.snapshot?.status;
+  if (status === 'pending') return !state.busy && previous === 'cancel' ? 'cancel' : 'code';
+  if (status === 'refreshing' || status === 'connected') return 'panel';
+  if (status === 'refresh-error') return 'retry-ping';
+  if (RETRYABLE_LOGIN_STATUSES.has(status)) return 'connect';
+  return previous;
 }
 
 /** Keep one provider-card login lifecycle current without repainting unchanged pending instructions. */

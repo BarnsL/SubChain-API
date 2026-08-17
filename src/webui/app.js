@@ -1,5 +1,5 @@
 import { createHarnessExpansionState } from './ui-state.js';
-import { createSubscriptionLoginState } from './subscription-login-state.js';
+import { createSubscriptionLoginState, shouldPreserveSubscriptionCard, shouldShowSubscriptionLogin, subscriptionFocusTarget } from './subscription-login-state.js';
 
 /* SubChain dashboard behaviour.
    Plain DOM, no framework. State refetched from /admin/state after any
@@ -151,8 +151,9 @@ function subscriptionStatusMessage(snapshot) {
 }
 
 function subscriptionPanel(provider) {
-  if (!provider.canConnectSubscription) return { action: '', panel: '' };
-  const { snapshot: current, busy } = subscriptionLogin.current();
+  const loginState = subscriptionLogin.current();
+  if (!shouldShowSubscriptionLogin(provider, loginState)) return { action: '', panel: '' };
+  const { snapshot: current, busy } = loginState;
   const canStart = !current || ['cancelled', 'expired', 'failed'].includes(current.status);
   const action = canStart
     ? `<button class="btn btn-sm btn-primary" type="button" data-connect-subscription data-subscription-focus="connect" ${busy ? 'disabled' : ''} aria-describedby="connect-${esc(provider.id)}-hint">${busy ? 'Connecting…' : 'Connect ChatGPT subscription'}</button>`
@@ -165,13 +166,13 @@ function subscriptionPanel(provider) {
   }
   if (current.status === 'pending') {
     const verificationLink = current.verificationUrl
-      ? `<a class="btn btn-sm" href="${esc(current.verificationUrl)}" target="_blank" rel="noopener noreferrer">${icon.ext} Open official verification</a>`
+      ? `<a class="btn btn-sm" href="${esc(current.verificationUrl)}" target="_blank" rel="noopener noreferrer" data-subscription-focus="verification">${icon.ext} Open official verification</a>`
       : '';
     return {
       action,
       panel: `<section class="subscription-connect" id="connect-${esc(provider.id)}-hint" aria-live="polite">
         <div><h3>Finish connecting ChatGPT</h3><p>${subscriptionStatusMessage(current)}</p></div>
-        <div class="subscription-code" aria-label="One-time verification code"><span>One-time code</span><code>${esc(current.userCode || 'Waiting for a code…')}</code></div>
+        <div class="subscription-code" aria-label="One-time verification code"><span>One-time code</span><code tabindex="-1" data-subscription-focus="code">${esc(current.userCode || 'Waiting for a code…')}</code></div>
         <div class="subscription-actions">${verificationLink}<button class="btn btn-sm btn-ghost" type="button" data-cancel-subscription data-subscription-focus="cancel" ${busy ? 'disabled' : ''}>${busy ? 'Cancelling…' : 'Cancel'}</button></div>
       </section>`,
     };
@@ -185,7 +186,7 @@ function subscriptionPanel(provider) {
   if (current.status === 'refreshing' || current.status === 'connected') {
     return {
       action: '',
-      panel: `<section class="subscription-connect" id="connect-${esc(provider.id)}-hint" aria-live="polite"><div><h3>ChatGPT is connected</h3><p>${subscriptionStatusMessage(current)}</p></div></section>`,
+      panel: `<section class="subscription-connect" id="connect-${esc(provider.id)}-hint" aria-live="polite" tabindex="-1" data-subscription-focus="panel"><div><h3>ChatGPT is connected</h3><p>${subscriptionStatusMessage(current)}</p></div></section>`,
     };
   }
   return {
@@ -197,19 +198,18 @@ function subscriptionPanel(provider) {
 function renderSubscriptionLogin() {
   const provider = state?.providers?.find((candidate) => candidate.id === 'openai-codex');
   const card = provider && $('#providerList [data-provider="openai-codex"]');
-  if (!provider?.canConnectSubscription || !card) return;
+  const loginState = subscriptionLogin.current();
+  if (!shouldShowSubscriptionLogin(provider, loginState) || !card) return;
   const focus = document.activeElement?.closest?.('[data-provider="openai-codex"]')
     ? document.activeElement.getAttribute('data-subscription-focus')
     : null;
   const subscription = subscriptionPanel(provider);
   $('[data-subscription-action]', card).innerHTML = subscription.action;
   $('[data-subscription-panel]', card).innerHTML = subscription.panel;
-  if (focus) ($(`[data-subscription-focus="${focus}"]`, card) || $('[data-subscription-focus="connect"]', card))?.focus();
+  if (focus) $(`[data-subscription-focus="${subscriptionFocusTarget(focus, loginState)}"]`, card)?.focus();
 }
 
-function renderProviders() {
-  $('#providerList').innerHTML = state.providers
-    .map((p) => {
+function providerCardMarkup(p) {
       const source = p.credentialSource ? p.credentialSource.replace(/-/g, ' ') : null;
       const status = p.health === 'ready' ? 'ready' : p.health === 'error' ? 'error' : p.hasCredential ? 'unchecked' : 'no credential';
       const statusClass = status === 'ready' ? 'badge-ok' : status === 'error' ? 'badge-err' : 'badge-warn';
@@ -254,8 +254,29 @@ function renderProviders() {
         </div>
         <section class="provider-models"><div class="row-between"><h3>Available models</h3><span class="provider-meta">${models.length.toLocaleString()} discovered</span></div><div class="model-list">${models.length ? models.map((model) => `<span class="model-chip" title="${esc(model.quotaFamily || '')}">${esc(model.label || model.id)}${model.quotaFamily ? `<small>${esc(model.quotaFamily)}</small>` : ''}</span>`).join('') : '<span class="provider-empty">Ping this subscription to refresh its model catalog.</span>'}</div></section>
       </article>`;
-    })
-    .join('');
+}
+
+function providerCard(markup) {
+  const template = document.createElement('template');
+  template.innerHTML = markup.trim();
+  return template.content.firstElementChild;
+}
+
+function renderProviders() {
+  const list = $('#providerList');
+  const existing = new Map($$('[data-provider]', list).map((card) => [card.dataset.provider, card]));
+  const loginState = subscriptionLogin.current();
+  for (const provider of state.providers) {
+    const card = existing.get(provider.id);
+    if (card && shouldPreserveSubscriptionCard(provider.id, loginState)) continue;
+    const next = providerCard(providerCardMarkup(provider));
+    if (card) card.replaceWith(next);
+    else list.append(next);
+  }
+  const providerIds = new Set(state.providers.map((provider) => provider.id));
+  for (const [providerId, card] of existing) {
+    if (!providerIds.has(providerId)) card.remove();
+  }
 }
 
 $('#providerList').addEventListener('click', async (event) => {
@@ -885,7 +906,7 @@ $('#btnShortcutDismiss').addEventListener('click', async (e) => {
 async function refresh({ preserveHarnessEditor = false } = {}) {
   state = await api('/admin/state');
   renderOverview();
-  if (subscriptionLogin.current().snapshot?.status !== 'pending') renderProviders();
+  renderProviders();
   renderChain();
   renderAccess();
   if (!preserveHarnessEditor) renderHarness();

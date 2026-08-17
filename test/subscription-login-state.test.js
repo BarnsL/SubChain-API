@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createSecretStore } from '../src/storage.js';
+import { createRoutingRuntime } from '../src/routing.js';
 
-const { createSubscriptionLoginState } = await import('../src/webui/subscription-login-state.js');
+const { createSubscriptionLoginState, shouldShowSubscriptionLogin, shouldPreserveSubscriptionCard, subscriptionFocusTarget } = await import('../src/webui/subscription-login-state.js');
+const { routingInventory } = await import('../src/admin.js');
 
 function deferred() {
   let resolve;
@@ -47,6 +53,13 @@ function createFlow({ start, status, cancel, ping } = {}) {
     onCancelled: () => { cancelled += 1; },
   });
   return { flow, timers, changes, counts: () => ({ connected, cancelled }) };
+}
+
+function inventoryRuntime() {
+  return createRoutingRuntime({
+    secretStore: createSecretStore({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'subchain-login-state-')) }),
+    routing: { schemaVersion: 2, chains: [], localKeys: [] },
+  });
 }
 
 test('pending login polls once, keeps an unchanged code stable, and clears its timer on cancellation', async () => {
@@ -151,4 +164,33 @@ test('stale responses and duplicate starts cannot override a cancelled login', a
 
   assert.equal(flow.current().snapshot.status, 'cancelled');
   assert.equal(timers.scheduled.length, 1, 'a stale terminal response must not schedule another poll');
+});
+
+test('an active refresh-error panel remains visible after inventory records Ping failure', () => {
+  const statusStore = {
+    list: () => [{ providerId: 'openai-codex', health: 'error' }],
+    get: () => ({ providerId: 'openai-codex', health: 'error' }),
+  };
+  const provider = routingInventory(inventoryRuntime(), null, {
+    statusStore,
+    managedProviderAvailable: () => true,
+  }).providers.find((candidate) => candidate.id === 'openai-codex');
+
+  assert.equal(provider.canConnectSubscription, false);
+  assert.equal(shouldShowSubscriptionLogin(provider, { snapshot: { status: 'refresh-error' } }), true);
+  assert.equal(shouldShowSubscriptionLogin(provider, { snapshot: null }), false);
+});
+
+test('subscription transitions restore focus to a stable, meaningful target', () => {
+  assert.equal(subscriptionFocusTarget('connect', { snapshot: { status: 'pending' }, busy: false }), 'code');
+  assert.equal(subscriptionFocusTarget('cancel', { snapshot: { status: 'pending' }, busy: true }), 'code');
+  assert.equal(subscriptionFocusTarget('cancel', { snapshot: { status: 'refreshing' }, busy: true }), 'panel');
+  assert.equal(subscriptionFocusTarget('panel', { snapshot: { status: 'refresh-error' }, busy: false }), 'retry-ping');
+  assert.equal(subscriptionFocusTarget('cancel', { snapshot: { status: 'failed' }, busy: false }), 'connect');
+});
+
+test('only the active pending subscription card is preserved during inventory refresh', () => {
+  assert.equal(shouldPreserveSubscriptionCard('openai-codex', { snapshot: { status: 'pending' } }), true);
+  assert.equal(shouldPreserveSubscriptionCard('google', { snapshot: { status: 'pending' } }), false);
+  assert.equal(shouldPreserveSubscriptionCard('openai-codex', { snapshot: { status: 'refresh-error' } }), false);
 });
