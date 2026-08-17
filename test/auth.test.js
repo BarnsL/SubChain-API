@@ -42,3 +42,40 @@ test('provider credential directories are opt-in and disclose only their generic
   });
   assert.deepEqual(credential, { token: 'directory-zhipu-key', type: 'api-key', source: 'credential-directory' });
 });
+
+test('configured portable sources resolve documented directory and environment aliases', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'subchain-auth-'));
+  const envFile = path.join(dir, 'shared.env');
+  fs.writeFileSync(path.join(dir, 'sakana.txt'), 'directory-sakana-key\n', 'utf8');
+  fs.writeFileSync(envFile, 'GLM_API_KEY=file-zhipu-key\nGEMINI_PAID_API_KEY=file-google-key\n', 'utf8');
+  const options = {
+    env: {
+      SUBCHAIN_CREDENTIALS_DIR: dir,
+      SUBCHAIN_CREDENTIAL_ENV_FILE: envFile,
+    },
+    platform: 'linux',
+    home: '/tmp/subchain-home',
+  };
+
+  assert.deepEqual(resolveCredential('sakana', options), {
+    token: 'directory-sakana-key', type: 'api-key', source: 'credential-directory',
+  });
+  assert.deepEqual(resolveCredential('zhipu', options), {
+    token: 'file-zhipu-key', type: 'api-key', source: 'credential-file',
+  });
+  assert.deepEqual(resolveCredential('google', options), {
+    token: 'file-google-key', type: 'api-key', source: 'credential-file',
+  });
+});
+
+test('numbered provider slots require their own explicit credential instead of duplicating the family token', () => {
+  const familyOnly = resolveCredential('sakana0', {
+    env: { SAKANA_API_KEY: 'family-sakana-key' }, platform: 'linux', home: '/tmp/subchain-home',
+  });
+  assert.equal(familyOnly, null);
+  assert.deepEqual(resolveCredential('sakana0', {
+    env: { SUBCHAIN_SAKANA0_API_KEY: 'slot-sakana-key' }, platform: 'linux', home: '/tmp/subchain-home',
+  }), {
+    token: 'slot-sakana-key', type: 'api-key', source: 'override',
+  });
+});

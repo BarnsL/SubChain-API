@@ -103,7 +103,7 @@
         <div class="stat-grid">
           <div class="stat"><div class="stat-label">Endpoint</div><div class="stat-value mono" style="font-size:15px" id="statEndpoint">—</div><div class="stat-sub">base URL for your apps</div></div>
           <div class="stat"><div class="stat-label">Links configured</div><div class="stat-value" id="statReady">—</div><div class="stat-sub" id="statReadySub">credential state, not a live probe</div></div>
-          <div class="stat"><div class="stat-label">Candidates</div><div class="stat-value" id="statCandidates">—</div><div class="stat-sub">slot + key combinations</div></div>
+          <div class="stat"><div class="stat-label">Candidates</div><div class="stat-value" id="statCandidates">—</div><div class="stat-sub">provider families ready</div></div>
           <div class="stat"><div class="stat-label">Requests served</div><div class="stat-value" id="statServed">—</div><div class="stat-sub" id="statFailed">since start</div></div>
         </div>
 
@@ -160,8 +160,8 @@
         <h1>Providers</h1>
         <p class="lede">
           Subscription providers with auto-detected credentials. Credentials are resolved from
-          explicit overrides, environment variables, conventional app locations, and platform-native
-          stores when available. The <span class="mono">.env</span> file is only an override layer.
+          explicit overrides, environment variables, conventional app locations, configured private
+          sources, and platform-native stores when available. The <span class="mono">.env</span> file is only an override layer.
         </p>
         <div id="providerList"></div>
       </section>
@@ -194,6 +194,7 @@
           Configuration injected into every request before it reaches the chain. Model aliases,
           generation defaults, and infrastructure settings live here.
         </p>
+        <div id="presetLibrary" class="preset-library card" aria-live="polite"></div>
         <div id="harnessConfig"></div>
       </section>
 

@@ -88,6 +88,7 @@ export function routingInventory(runtime, quota) {
       subscriptionUrl: def.subscriptionUrl,
       jurisdiction: def.jurisdiction,
       hasCredential: Boolean(credential),
+      credentialSource: credential?.source || null,
       quota: quota?.get(family) || null,
       linkCount: chains.reduce((count, chain) => count + chain.links.filter((link) => link.provider.replace(/\d+$/, '') === family).length, 0),
     };

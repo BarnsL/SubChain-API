@@ -14,37 +14,48 @@ const DEFAULTS = {
   headers: {},
 };
 
-export function loadHarness() {
-  if (!fs.existsSync(HARNESS_FILE)) return { ...DEFAULTS };
+export function loadHarness(file = HARNESS_FILE) {
+  if (!fs.existsSync(file)) return { ...DEFAULTS };
   try {
-    const raw = JSON.parse(fs.readFileSync(HARNESS_FILE, 'utf8'));
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
     return { ...DEFAULTS, ...raw };
   } catch {
     return { ...DEFAULTS };
   }
 }
 
-export function saveHarness(config) {
-  fs.writeFileSync(HARNESS_FILE, JSON.stringify(config, null, 2) + '\n', 'utf8');
+export function saveHarness(config, file = HARNESS_FILE) {
+  fs.writeFileSync(file, JSON.stringify(config, null, 2) + '\n', 'utf8');
+}
+
+export function applyHarnessConfig(body, harness) {
+  const next = { ...body, messages: Array.isArray(body.messages) ? [...body.messages] : body.messages };
+
+  if (harness.aliases?.[next.model]) {
+    next.model = harness.aliases[next.model];
+  }
+
+  const gen = harness.generation || {};
+  if (gen.temperature !== null && gen.temperature !== undefined && next.temperature === undefined) next.temperature = gen.temperature;
+  if (gen.top_p !== null && gen.top_p !== undefined && next.top_p === undefined) next.top_p = gen.top_p;
+  if (gen.top_k !== null && gen.top_k !== undefined && next.top_k === undefined) next.top_k = gen.top_k;
+  if (gen.max_tokens !== null && gen.max_tokens !== undefined && next.max_tokens === undefined) next.max_tokens = gen.max_tokens;
+  if (gen.stop_sequences?.length && !next.stop) next.stop = gen.stop_sequences;
+
+  if (harness.infrastructure?.stream !== null && harness.infrastructure?.stream !== undefined && next.stream === undefined) {
+    next.stream = harness.infrastructure.stream;
+  }
+
+  const prompts = [harness.systemPrompts?.operatingInstructions, harness.systemPrompts?.persona]
+    .filter((value) => typeof value === 'string' && value.trim())
+    .map((value) => value.trim());
+  if (prompts.length && Array.isArray(next.messages)) {
+    next.messages.unshift({ role: 'system', content: prompts.join('\n\n') });
+  }
+
+  return next;
 }
 
 export function applyHarness(body) {
-  const harness = loadHarness();
-
-  if (harness.aliases[body.model]) {
-    body.model = harness.aliases[body.model];
-  }
-
-  const gen = harness.generation;
-  if (gen.temperature !== null && body.temperature === undefined) body.temperature = gen.temperature;
-  if (gen.top_p !== null && body.top_p === undefined) body.top_p = gen.top_p;
-  if (gen.top_k !== null && body.top_k === undefined) body.top_k = gen.top_k;
-  if (gen.max_tokens !== null && body.max_tokens === undefined) body.max_tokens = gen.max_tokens;
-  if (gen.stop_sequences?.length && !body.stop) body.stop = gen.stop_sequences;
-
-  if (harness.infrastructure.stream !== null && body.stream === undefined) {
-    body.stream = harness.infrastructure.stream;
-  }
-
-  return body;
+  return applyHarnessConfig(body, loadHarness());
 }

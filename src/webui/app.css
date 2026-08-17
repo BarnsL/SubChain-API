@@ -311,6 +311,34 @@ pre .c { color: #5b626d; }
 }
 .harness-field textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
 
+/* ── Harness preset library ────────────────────────────────────────── */
+
+.preset-library { margin-bottom: 14px; padding: 18px 20px; }
+.preset-library-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.preset-library-head h2 { font-size: 14px; font-weight: 600; }
+.preset-count { color: var(--muted-foreground); font-size: 12px; }
+.preset-library > p { margin: 5px 0 14px; color: var(--muted-foreground); font-size: 13px; line-height: 1.5; }
+.preset-toolbar { display: grid; grid-template-columns: minmax(160px, 0.4fr) minmax(220px, 1fr); gap: 10px; }
+.preset-results { max-height: 250px; margin-top: 12px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.preset-result {
+  width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center;
+  padding: 10px 12px; border: 0; border-bottom: 1px solid var(--border); background: transparent;
+  color: var(--foreground); cursor: pointer; font: inherit; text-align: left;
+}
+.preset-result:last-child { border-bottom: 0; }
+.preset-result:hover, .preset-result:focus-visible { background: var(--card-hover); outline: none; }
+.preset-result.selected { background: var(--primary-soft); }
+.preset-result-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.preset-result-detail { display: block; overflow: hidden; color: var(--muted-foreground); font-size: 12px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+.preset-source { color: var(--muted-foreground); font-size: 11px; white-space: nowrap; }
+.preset-empty { padding: 16px 12px; color: var(--muted-foreground); font-size: 13px; }
+.preset-preview { margin: 14px 0 0; padding-top: 14px; border-top: 1px solid var(--border); }
+.preset-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.preset-preview h3 { font-size: 13px; font-weight: 600; }
+.preset-preview pre { max-height: 220px; margin: 0 0 12px; overflow: auto; padding: 12px; background: var(--input); border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.preset-apply { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.preset-apply .form-field { min-width: 160px; margin: 0; }
+
 /* ── Toast ──────────────────────────────────────────────────────────── */
 
 #toast {
@@ -355,4 +383,5 @@ pre .c { color: #5b626d; }
   .nav-label, .sidebar-foot { display: none; }
   .brand { padding: 0 12px 0 4px; }
   .container { padding: 24px 18px 60px; }
+  .preset-toolbar { grid-template-columns: 1fr; }
 }

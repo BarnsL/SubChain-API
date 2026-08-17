@@ -49,9 +49,16 @@ that key's selected provider or chain.
 ## Credentials and providers
 
 Credentials resolve from explicit SubChain overrides, conventional environment
-variables, conventional provider-app locations, and platform-native stores when
-available. `.env` is an override layer. The dashboard never returns provider
+variables, conventional provider-app locations, configured private sources, and
+platform-native stores when available. Set `SUBCHAIN_CREDENTIALS_DIR` or
+`SUBCHAIN_CREDENTIAL_ENV_FILE` only in ignored local configuration when a shared
+credential source is deliberately approved. `.env` is an override layer. The
+dashboard reports only a generic source category and never returns provider
 credentials to the browser.
+
+The base provider credential serves that provider family once. Additional
+numbered provider slots require an explicit `SUBCHAIN_<PROVIDER><N>_API_KEY`
+override, so a single credential is never misreported as several candidates.
 
 The supported providers are Anthropic, OpenAI API, Kimi, Google, Zhipu AI GLM,
 and Sakana AI. Zhipu and Sakana accept direct API keys. Read the concise,
@@ -72,7 +79,9 @@ npm run import-presets
 The importer accepts only declared text or JSON prompt paths, writes a manifest
 with source URL, revision, licence copy, and checksums, and does not execute
 imported content. Prompt bodies are intentionally never vendored into this
-public repository. See [docs/PRESETS.md](docs/PRESETS.md).
+public repository. The Harness has a searchable loopback-only library where an
+imported preset can be previewed and then applied to Operating Instructions or
+Persona. See [docs/PRESETS.md](docs/PRESETS.md).
 
 ## Safety model
 

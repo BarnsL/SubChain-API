@@ -10,6 +10,7 @@ import { Cooldowns, dispatch, ChainError } from './chain.js';
 import { IS_SEA, EXE_DIR } from './runtime.js';
 import { transformResponse, transformStreamChunk } from './transforms.js';
 import { applyHarness, loadHarness, saveHarness } from './harness.js';
+import { listPresetEntries, readPresetEntry } from './presets.js';
 import {
   bearerFrom,
   addChain,
@@ -102,7 +103,7 @@ function serveStatic(res, pathname) {
   return true;
 }
 
-export function createServer(runtime, quota, { verbose = false, ui = true } = {}) {
+export function createServer(runtime, quota, { verbose = false, ui = true, harnessFile } = {}) {
   const cooldowns = new Cooldowns(runtime.settings.cooldownMs);
   const stats = { served: 0, failed: 0, startedAt: Date.now() };
 
@@ -142,7 +143,7 @@ export function createServer(runtime, quota, { verbose = false, ui = true } = {}
             ...routingInventory(runtime, quota),
             cooling: cooldowns.snapshot(),
             quota: quota.snapshot(),
-            harness: loadHarness(),
+            harness: loadHarness(harnessFile),
             stats: { ...stats, uptimeSeconds: Math.round((Date.now() - stats.startedAt) / 1000) },
           });
         }
@@ -213,11 +214,34 @@ export function createServer(runtime, quota, { verbose = false, ui = true } = {}
           return json(res, 200, { ok: true, fallbackThresholdPercent: runtime.settings.fallbackThresholdPercent });
         }
         if (url.pathname === '/admin/harness' && req.method === 'GET') {
-          return json(res, 200, loadHarness());
+          return json(res, 200, loadHarness(harnessFile));
+        }
+        if (url.pathname === '/admin/presets' && req.method === 'GET') {
+          return json(res, 200, listPresetEntries({
+            dataDir: runtime.presetDataDir,
+            source: url.searchParams.get('source'),
+            query: url.searchParams.get('query') || '',
+            limit: url.searchParams.get('limit') || 50,
+          }));
+        }
+        if (url.pathname === '/admin/presets/read' && req.method === 'GET') {
+          return json(res, 200, readPresetEntry({ dataDir: runtime.presetDataDir, id: url.searchParams.get('id') }));
+        }
+        if (url.pathname === '/admin/harness/preset' && req.method === 'POST') {
+          const { id, target = 'operatingInstructions', mode = 'replace' } = await readJson(req);
+          if (!['operatingInstructions', 'persona'].includes(target)) return fail(res, 400, 'Preset target is invalid');
+          if (!['replace', 'append'].includes(mode)) return fail(res, 400, 'Preset mode is invalid');
+          const preset = readPresetEntry({ dataDir: runtime.presetDataDir, id });
+          const harness = loadHarness(harnessFile);
+          const current = typeof harness.systemPrompts?.[target] === 'string' ? harness.systemPrompts[target].trim() : '';
+          const value = mode === 'append' && current ? `${current}\n\n${preset.content}` : preset.content;
+          const updated = { ...harness, systemPrompts: { ...harness.systemPrompts, [target]: value } };
+          saveHarness(updated, harnessFile);
+          return json(res, 200, { ok: true, harness: updated, preset: { id: preset.id, title: preset.title, source: preset.source } });
         }
         if (url.pathname === '/admin/harness' && req.method === 'POST') {
           const config = await readJson(req);
-          saveHarness(config);
+          saveHarness(config, harnessFile);
           return json(res, 200, { ok: true });
         }
         if (url.pathname === '/admin/quota' && req.method === 'GET') {

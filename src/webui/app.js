@@ -12,6 +12,7 @@ let state = null;
 let revealed = false;
 let accessKeyValue = null;
 const harnessExpansion = createHarnessExpansionState();
+const presetLibrary = { loaded: false, loading: false, query: '', source: '', page: null, selected: null, request: 0 };
 
 // ── helpers ───────────────────────────────────────────────────────────
 
@@ -84,9 +85,9 @@ function progressClass(pct) {
 function renderOverview() {
   const { totals, stats, providers, cooling } = state;
   $('#statEndpoint').textContent = `${ORIGIN}/v1`;
-  $('#statReady').textContent = totals.ready;
+  $('#statReady').textContent = totals.candidates;
   $('#statReadySub').textContent = `of ${totals.links} chain links`;
-  $('#statCandidates').textContent = totals.candidates;
+  $('#statCandidates').textContent = totals.ready;
   $('#statServed').textContent = stats.served;
   $('#statFailed').textContent = stats.failed ? `${stats.failed} failed` : 'none failed';
 
@@ -129,8 +130,9 @@ function renderOverview() {
 function renderProviders() {
   $('#providerList').innerHTML = state.providers
     .map((p) => {
+      const source = p.credentialSource ? p.credentialSource.replace(/-/g, ' ') : null;
       const credBadge = p.hasCredential
-        ? `<span class="badge badge-ok"><span class="dot"></span>detected</span>`
+        ? `<span class="badge badge-ok"><span class="dot"></span>detected${source ? ` · ${esc(source)}` : ''}</span>`
         : `<span class="badge badge-warn"><span class="dot"></span>missing</span>`;
 
       const q = p.quota;
@@ -157,6 +159,7 @@ function renderProviders() {
               <span class="mono">${esc(p.baseUrl)}</span>
               · ${esc(p.authType)} · ctx ${(p.contextWindow / 1000).toFixed(0)}K · ${esc(p.jurisdiction)}
             </div>
+            <div class="provider-meta">${source ? `Credential source: ${esc(source)}.` : 'No authorized credential source is currently available.'}</div>
           </div>
           <div class="provider-actions">${siteLink}</div>
         </div>
@@ -294,6 +297,102 @@ const HARNESS_SECTIONS = [
   { key: 'headers', label: 'Custom Headers', type: 'json' },
 ];
 
+const presetSourceLabel = (source) => ({
+  cl4r1t4s: 'CL4R1T4S', tweakcc: 'tweakcc', 'claude-code-system-prompts': 'Claude Code system prompts',
+}[source] || source);
+
+function renderPresetLibrary() {
+  const root = $('#presetLibrary');
+  if (!root) return;
+  const page = presetLibrary.page;
+  const items = page?.items || [];
+  const sourceOptions = (page?.sources || []).map((source) =>
+    `<option value="${esc(source.id)}" ${presetLibrary.source === source.id ? 'selected' : ''}>${esc(presetSourceLabel(source.id))} (${source.count})</option>`,
+  ).join('');
+  const results = presetLibrary.loading
+    ? '<div class="preset-empty">Loading imported presets…</div>'
+    : items.length
+      ? items.map((entry) => `<button class="preset-result ${presetLibrary.selected?.id === entry.id ? 'selected' : ''}" type="button" data-preset-id="${esc(entry.id)}">
+          <span><span class="preset-result-title">${esc(entry.title)}</span><span class="preset-result-detail">${esc(entry.description || entry.file)}</span></span>
+          <span class="preset-source">${esc(presetSourceLabel(entry.source))}</span>
+        </button>`).join('')
+      : '<div class="preset-empty">No imported presets match this search.</div>';
+  const selected = presetLibrary.selected;
+  const preview = selected ? `<div class="preset-preview">
+      <div class="preset-preview-head"><h3>${esc(selected.title)}</h3><span class="preset-count">${selected.content.length.toLocaleString()} characters</span></div>
+      <pre>${esc(selected.content.slice(0, 4000))}${selected.content.length > 4000 ? '\n\n[Preview truncated. Applying uses the complete imported preset.]' : ''}</pre>
+      <div class="preset-apply">
+        <label class="form-field">Apply to<select class="input" data-preset-target><option value="operatingInstructions">Operating Instructions</option><option value="persona">Persona</option></select></label>
+        <label class="form-field">Mode<select class="input" data-preset-mode><option value="replace">Replace</option><option value="append">Append</option></select></label>
+        <button class="btn btn-sm" type="button" data-apply-preset>Apply preset</button>
+      </div>
+    </div>` : '';
+  root.innerHTML = `<div class="preset-library-head"><h2>Imported preset library</h2><span class="preset-count">${page ? `${page.total.toLocaleString()} matching` : 'Preparing library'}</span></div>
+    <p>Search the imported collections, preview one inert prompt, then apply it to the Harness. Applying a preset saves it immediately.</p>
+    <div class="preset-toolbar"><select class="input" aria-label="Preset source" data-preset-source><option value="">All imported sources</option>${sourceOptions}</select><input class="input" type="search" placeholder="Search preset names, descriptions, or files" value="${esc(presetLibrary.query)}" data-preset-query /></div>
+    <div class="preset-results">${results}</div>${preview}`;
+  if (!presetLibrary.loaded && !presetLibrary.loading) void loadPresetEntries();
+}
+
+async function loadPresetEntries() {
+  const request = ++presetLibrary.request;
+  presetLibrary.loading = true;
+  renderPresetLibrary();
+  const params = new URLSearchParams({ limit: '100' });
+  if (presetLibrary.query) params.set('query', presetLibrary.query);
+  if (presetLibrary.source) params.set('source', presetLibrary.source);
+  try {
+    const page = await api(`/admin/presets?${params}`);
+    if (request !== presetLibrary.request) return;
+    presetLibrary.page = page;
+    presetLibrary.loaded = true;
+  } catch (error) {
+    if (request === presetLibrary.request) toast(error.message, true);
+  } finally {
+    if (request === presetLibrary.request) {
+      presetLibrary.loading = false;
+      renderPresetLibrary();
+    }
+  }
+}
+
+let presetSearchDebounce;
+$('#presetLibrary').addEventListener('input', (event) => {
+  const field = event.target.closest('[data-preset-query]');
+  if (!field) return;
+  presetLibrary.query = field.value;
+  presetLibrary.selected = null;
+  clearTimeout(presetSearchDebounce);
+  presetSearchDebounce = setTimeout(loadPresetEntries, 180);
+});
+$('#presetLibrary').addEventListener('change', (event) => {
+  const field = event.target.closest('[data-preset-source]');
+  if (!field) return;
+  presetLibrary.source = field.value;
+  presetLibrary.selected = null;
+  void loadPresetEntries();
+});
+$('#presetLibrary').addEventListener('click', async (event) => {
+  const choice = event.target.closest('[data-preset-id]');
+  if (choice) {
+    try {
+      presetLibrary.selected = await api(`/admin/presets/read?id=${encodeURIComponent(choice.dataset.presetId)}`);
+      renderPresetLibrary();
+    } catch (error) { toast(error.message, true); }
+    return;
+  }
+  if (!event.target.closest('[data-apply-preset]') || !presetLibrary.selected) return;
+  const target = $('[data-preset-target]', $('#presetLibrary')).value;
+  const mode = $('[data-preset-mode]', $('#presetLibrary')).value;
+  if (mode === 'replace' && state.harness?.systemPrompts?.[target] && !confirm(`Replace the current ${target === 'persona' ? 'persona' : 'operating instructions'}?`)) return;
+  try {
+    const result = await api('/admin/harness/preset', { method: 'POST', body: JSON.stringify({ id: presetLibrary.selected.id, target, mode }) });
+    state.harness = result.harness;
+    renderHarness();
+    toast('Preset applied to the Harness');
+  } catch (error) { toast(error.message, true); }
+});
+
 function renderHarness() {
   const harness = state.harness || {};
 
@@ -346,6 +445,7 @@ function renderHarness() {
       </div>
     </div>`;
   }).join('');
+  renderPresetLibrary();
 }
 
 // Toggle harness sections

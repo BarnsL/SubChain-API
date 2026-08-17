@@ -25,6 +25,10 @@ export const PRESET_SOURCES = [
   },
 ];
 
+const PRESET_ID = (source, file, entry) => Buffer.from(JSON.stringify([source, file, entry]), 'utf8').toString('base64url');
+const safeSource = (source) => typeof source === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(source);
+const safeFile = (file) => typeof file === 'string' && file === path.posix.normalize(file) && !file.startsWith('../') && !file.startsWith('/');
+
 function walkFiles(root, current = root, files = []) {
   for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
     const file = path.join(current, entry.name);
@@ -37,6 +41,94 @@ function walkFiles(root, current = root, files = []) {
 
 function checksum(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
+function readJson(file) {
+  return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+function privatePresetRoot(dataDir) {
+  return path.join(dataDir, 'presets');
+}
+
+function importedFile(root, source, file) {
+  if (!safeSource(source) || !safeFile(file)) return null;
+  const sourceRoot = path.join(root, source);
+  const resolved = path.join(sourceRoot, ...file.split('/'));
+  return resolved.startsWith(sourceRoot + path.sep) ? resolved : null;
+}
+
+function catalogFromPrivateData(dataDir) {
+  const root = privatePresetRoot(dataDir);
+  let index;
+  try { index = readJson(path.join(root, 'index.json')); } catch { return []; }
+  if (!Array.isArray(index?.sources)) return [];
+
+  const entries = [];
+  for (const sourceRecord of index.sources) {
+    const source = sourceRecord?.source;
+    if (!safeSource(source)) continue;
+    let manifest;
+    try { manifest = readJson(path.join(root, source, 'manifest.json')); } catch { continue; }
+    for (const fileRecord of Array.isArray(manifest?.files) ? manifest.files : []) {
+      const file = fileRecord?.path;
+      const filePath = importedFile(root, source, file);
+      if (!filePath || !fs.existsSync(filePath)) continue;
+      if (/\.json$/i.test(file)) {
+        try {
+          const parsed = readJson(filePath);
+          if (Array.isArray(parsed?.prompts)) {
+            parsed.prompts.forEach((prompt, entry) => {
+              if (!Array.isArray(prompt?.pieces) || !prompt.pieces.every((piece) => typeof piece === 'string')) return;
+              entries.push({
+                id: PRESET_ID(source, file, entry), source, file, entry,
+                title: String(prompt.name || prompt.id || `${path.posix.basename(file)} #${entry + 1}`),
+                description: typeof prompt.description === 'string' ? prompt.description : '',
+              });
+            });
+          }
+        } catch {
+          // Imported JSON that cannot be parsed is inert and unavailable until re-imported.
+        }
+      } else if (/\.(?:md|txt)$/i.test(file)) {
+        entries.push({ id: PRESET_ID(source, file, null), source, file, entry: null, title: path.posix.basename(file), description: '' });
+      }
+    }
+  }
+  return entries.sort((left, right) => left.source.localeCompare(right.source) || left.title.localeCompare(right.title));
+}
+
+/** List private, inert preset metadata for the loopback Harness picker. */
+export function listPresetEntries({ dataDir = resolveDataDir(), source = null, query = '', limit = 50 } = {}) {
+  const all = catalogFromPrivateData(dataDir);
+  const normalizedSource = typeof source === 'string' && source ? source : null;
+  const needle = String(query || '').trim().toLocaleLowerCase();
+  const matching = all.filter((entry) =>
+    (!normalizedSource || entry.source === normalizedSource) &&
+    (!needle || `${entry.title}\n${entry.description}\n${entry.file}`.toLocaleLowerCase().includes(needle)),
+  );
+  const sources = [...new Set(all.map((entry) => entry.source))].map((id) => ({ id, count: all.filter((entry) => entry.source === id).length }));
+  return { total: matching.length, sources, items: matching.slice(0, Math.max(1, Math.min(Number(limit) || 50, 100))) };
+}
+
+/** Read exactly one catalogue-selected inert prompt. Paths and entries are checked against the private manifest. */
+export function readPresetEntry({ dataDir = resolveDataDir(), id } = {}) {
+  const entry = catalogFromPrivateData(dataDir).find((candidate) => candidate.id === id);
+  if (!entry) throw Object.assign(new Error('Unknown preset'), { statusCode: 404 });
+  const filePath = importedFile(privatePresetRoot(dataDir), entry.source, entry.file);
+  if (!filePath) throw Object.assign(new Error('Invalid preset'), { statusCode: 400 });
+  let content;
+  if (entry.entry === null) {
+    content = fs.readFileSync(filePath, 'utf8');
+  } else {
+    const prompt = readJson(filePath)?.prompts?.[entry.entry];
+    if (!Array.isArray(prompt?.pieces) || !prompt.pieces.every((piece) => typeof piece === 'string')) {
+      throw Object.assign(new Error('Imported preset is malformed'), { statusCode: 400 });
+    }
+    content = prompt.pieces.join('');
+  }
+  if (!content.trim()) throw Object.assign(new Error('Imported preset is empty'), { statusCode: 400 });
+  return { ...entry, content };
 }
 
 function copyLicense(sourceDirectory, destinationDirectory) {

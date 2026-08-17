@@ -18,6 +18,20 @@ SubChain provider. It replaces machine-specific recipes with portable rules.
 6. State the provider's prompt-processing jurisdiction when it is known from an
    authoritative provider source. Do not infer it.
 
+## Portable source configuration
+
+The resolver is cross-platform and never embeds a machine path. A user may opt
+in to an existing private credential directory with
+`SUBCHAIN_CREDENTIALS_DIR`, or a private environment file with
+`SUBCHAIN_CREDENTIAL_ENV_FILE`. Both values belong in ignored local
+configuration. The dashboard reports only `credential directory`,
+`credential file`, `provider application`, `environment`, or `platform store`.
+
+One unnumbered family credential creates one candidate. Numbered provider slots
+are independent and require their own `SUBCHAIN_<PROVIDER><N>_API_KEY` value
+(or an Anthropic OAuth slot override). This prevents a single token from being
+silently duplicated across ten slots.
+
 | Provider | SubChain override | Conventional variable | Route |
 |---|---|---|---|
 | Anthropic | `SUBCHAIN_ANTHROPIC_OAUTH_TOKEN` | `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_TOKEN` | [anthropic.md](anthropic.md) |
@@ -27,4 +41,5 @@ SubChain provider. It replaces machine-specific recipes with portable rules.
 | Sakana AI | `SUBCHAIN_SAKANA_API_KEY` | `SAKANA_API_KEY` | [sakana.md](sakana.md) |
 
 The resolver also handles Google through `SUBCHAIN_GOOGLE_API_KEY`,
-`GOOGLE_API_KEY`, or `GEMINI_API_KEY`.
+`GOOGLE_API_KEY`, `GEMINI_API_KEY`, or an explicitly configured
+`GEMINI_PAID_API_KEY` source.
