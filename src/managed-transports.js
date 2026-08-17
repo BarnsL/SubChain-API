@@ -340,6 +340,8 @@ export function createManagedTransports({
   let codexLogin = { snapshot: loginSnapshot() };
   let startingCodexLogin = null;
   let startingCodexRpc = null;
+  let cancellingCodexLogin = null;
+  let cancellingCodexLoginId = null;
   let disposed = false;
 
   const finishCodexLogin = (snapshot) => {
@@ -382,7 +384,9 @@ export function createManagedTransports({
           if (event?.loginId !== loginId) return;
           finishCodexLogin(event.success
             ? { status: 'ready' }
-            : { status: 'failed', message: 'ChatGPT sign-in did not complete' });
+            : cancellingCodexLoginId === loginId
+              ? { status: 'cancelled' }
+              : { status: 'failed', message: 'ChatGPT sign-in did not complete' });
         }) || (() => {});
         const unsubscribeClose = rpc.onClose?.((error) => {
           if (!error || codexLogin.rpc !== rpc) return;
@@ -418,14 +422,29 @@ export function createManagedTransports({
     return startingCodexLogin;
   };
 
-  const cancelCodexLogin = async () => {
-    if (codexLogin.snapshot.status !== 'pending') return codexLoginStatus();
-    try {
-      await codexLogin.rpc.request('account/login/cancel', { loginId: codexLogin.loginId });
-    } catch {
-      return finishCodexLogin({ status: 'failed', message: 'Could not cancel ChatGPT sign-in' });
-    }
-    return finishCodexLogin({ status: 'cancelled' });
+  const cancelCodexLogin = () => {
+    if (cancellingCodexLogin) return cancellingCodexLogin;
+    if (codexLogin.snapshot.status !== 'pending') return Promise.resolve(codexLoginStatus());
+    const active = codexLogin;
+    cancellingCodexLoginId = active.loginId;
+    const operation = (async () => {
+      try {
+        await active.rpc.request('account/login/cancel', { loginId: active.loginId });
+      } catch {
+        if (codexLogin !== active) return codexLoginStatus();
+        return finishCodexLogin({ status: 'failed', message: 'Could not cancel ChatGPT sign-in' });
+      }
+      if (codexLogin !== active) return codexLoginStatus();
+      return finishCodexLogin({ status: 'cancelled' });
+    })();
+    let tracked;
+    tracked = operation.finally(() => {
+      if (cancellingCodexLogin !== tracked) return;
+      cancellingCodexLogin = null;
+      cancellingCodexLoginId = null;
+    });
+    cancellingCodexLogin = tracked;
+    return tracked;
   };
 
   const dispose = () => {

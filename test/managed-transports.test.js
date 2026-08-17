@@ -13,10 +13,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-function deviceCodeRpc({ account = null, loginId = 'login-1', onLoginStart, startExtras = {} } = {}) {
+function deviceCodeRpc({ account = null, loginId = 'login-1', onLoginStart, onLoginCancel, startExtras = {} } = {}) {
   const calls = [];
   const listeners = new Map();
   const closeListeners = new Set();
+  let pendingCancel = null;
   let closed = 0;
   const rpc = {
     calls,
@@ -25,6 +26,8 @@ function deviceCodeRpc({ account = null, loginId = 'login-1', onLoginStart, star
     fail(error = new Error('managed provider process exited')) {
       if (closed) return;
       closed += 1;
+      pendingCancel?.reject(error);
+      pendingCancel = null;
       for (const listener of closeListeners) listener(error);
     },
     async request(method, params) {
@@ -41,7 +44,13 @@ function deviceCodeRpc({ account = null, loginId = 'login-1', onLoginStart, star
         onLoginStart?.(rpc, result);
         return result;
       }
-      if (method === 'account/login/cancel') return {};
+      if (method === 'account/login/cancel') {
+        if (!onLoginCancel) return {};
+        return new Promise((resolve, reject) => {
+          pendingCancel = { resolve, reject };
+          onLoginCancel(rpc);
+        });
+      }
       throw new Error(`unexpected ${method}`);
     },
     subscribe(method, listener) { listeners.set(method, listener); return () => listeners.delete(method); },
@@ -49,6 +58,8 @@ function deviceCodeRpc({ account = null, loginId = 'login-1', onLoginStart, star
     close() {
       if (closed) return;
       closed += 1;
+      pendingCancel?.reject(new Error('managed provider connection closed'));
+      pendingCancel = null;
       for (const listener of closeListeners) listener(null);
     },
   };
@@ -220,6 +231,39 @@ test('managed ChatGPT login cancellation drops the device code and closes the ap
   assert.deepEqual(cancelled, { status: 'cancelled' });
   assert.deepEqual(managed.loginStatus('codex-app-server'), { status: 'cancelled' });
   assert.deepEqual(rpc.calls.at(-1), { method: 'account/login/cancel', params: { loginId: 'login-1' } });
+  assert.equal(rpc.closed, 1);
+});
+
+test('managed ChatGPT cancellation treats its completion notification as cancelled and reuses the in-flight promise', async () => {
+  const rpc = deviceCodeRpc({
+    onLoginCancel(client) {
+      client.emit('account/login/completed', { loginId: 'login-1', success: false, error: null });
+    },
+  });
+  const managed = createManagedTransports({ codexConnect: async () => rpc });
+
+  await managed.startLogin('codex-app-server');
+  const cancelling = managed.cancelLogin('codex-app-server');
+  const duplicate = managed.cancelLogin('codex-app-server');
+
+  assert.equal(duplicate, cancelling);
+  assert.deepEqual(await cancelling, { status: 'cancelled' });
+  assert.deepEqual(managed.loginStatus('codex-app-server'), { status: 'cancelled' });
+  assert.equal(rpc.calls.filter((call) => call.method === 'account/login/cancel').length, 1);
+  assert.equal(rpc.closed, 1);
+});
+
+test('managed ChatGPT unsuccessful completion remains failed outside cancellation', async () => {
+  const rpc = deviceCodeRpc();
+  const managed = createManagedTransports({ codexConnect: async () => rpc });
+
+  await managed.startLogin('codex-app-server');
+  rpc.emit('account/login/completed', { loginId: 'login-1', success: false, error: null });
+
+  assert.deepEqual(managed.loginStatus('codex-app-server'), {
+    status: 'failed',
+    message: 'ChatGPT sign-in did not complete',
+  });
   assert.equal(rpc.closed, 1);
 });
 
