@@ -1,4 +1,5 @@
 import { createHarnessExpansionState } from './ui-state.js';
+import { createSubscriptionLoginState } from './subscription-login-state.js';
 
 /* SubChain dashboard behaviour.
    Plain DOM, no framework. State refetched from /admin/state after any
@@ -14,7 +15,18 @@ let accessKeyValue = null;
 const harnessExpansion = createHarnessExpansionState();
 const presetLibrary = { loaded: false, loading: false, query: '', source: '', component: '', page: null, selected: null, request: 0 };
 let activeHarnessId = localStorage.getItem('subchain.harness.active') || 'default';
-const subscriptionLogin = { providerId: null, snapshot: null, busy: false, pollTimer: null, requestId: 0 };
+const subscriptionLogin = createSubscriptionLoginState({
+  start: () => api('/admin/providers/openai-codex/connect', { method: 'POST' }),
+  status: () => api('/admin/providers/openai-codex/connect'),
+  cancel: () => api('/admin/providers/openai-codex/connect/cancel', { method: 'POST' }),
+  ping: () => api('/admin/providers/openai-codex/ping', { method: 'POST' }),
+  onChange: () => renderSubscriptionLogin(),
+  onConnected: async () => {
+    await refresh();
+    toast('ChatGPT subscription connected and provider status refreshed');
+  },
+  onCancelled: () => toast('ChatGPT connection cancelled'),
+});
 
 // ── helpers ───────────────────────────────────────────────────────────
 
@@ -128,31 +140,22 @@ function renderOverview() {
 
 // ── providers ────────────────────────────────────────────────────────
 
-function clearSubscriptionPolling() {
-  clearTimeout(subscriptionLogin.pollTimer);
-  subscriptionLogin.pollTimer = null;
-}
-
-function invalidateSubscriptionLogin() {
-  clearSubscriptionPolling();
-  subscriptionLogin.requestId += 1;
-  return subscriptionLogin.requestId;
-}
-
 function subscriptionStatusMessage(snapshot) {
   if (snapshot?.status === 'pending') return 'Use the official verification page and enter this one-time code.';
   if (snapshot?.status === 'cancelled') return 'Connection cancelled. Start again when you are ready.';
   if (snapshot?.status === 'expired') return 'That code expired. Start a new ChatGPT connection to get another one.';
+  if (snapshot?.status === 'refreshing') return 'ChatGPT is connected. Refreshing provider status now.';
+  if (snapshot?.status === 'connected') return 'ChatGPT is connected and provider status has been refreshed.';
+  if (snapshot?.status === 'refresh-error') return 'ChatGPT is connected, but provider status could not refresh. Retry Ping without reconnecting.';
   return 'SubChain could not complete the ChatGPT connection. Check that Codex can sign in to your subscription, then try again.';
 }
 
 function subscriptionPanel(provider) {
   if (!provider.canConnectSubscription) return { action: '', panel: '' };
-  const current = subscriptionLogin.providerId === provider.id ? subscriptionLogin.snapshot : null;
-  const busy = subscriptionLogin.providerId === provider.id && subscriptionLogin.busy;
-  const canStart = !current || ['cancelled', 'expired', 'error'].includes(current.status);
+  const { snapshot: current, busy } = subscriptionLogin.current();
+  const canStart = !current || ['cancelled', 'expired', 'failed'].includes(current.status);
   const action = canStart
-    ? `<button class="btn btn-sm btn-primary" type="button" data-connect-subscription ${busy ? 'disabled' : ''} aria-describedby="connect-${esc(provider.id)}-hint">${busy ? 'Connecting…' : 'Connect ChatGPT subscription'}</button>`
+    ? `<button class="btn btn-sm btn-primary" type="button" data-connect-subscription data-subscription-focus="connect" ${busy ? 'disabled' : ''} aria-describedby="connect-${esc(provider.id)}-hint">${busy ? 'Connecting…' : 'Connect ChatGPT subscription'}</button>`
     : '';
   if (!current) {
     return {
@@ -169,8 +172,20 @@ function subscriptionPanel(provider) {
       panel: `<section class="subscription-connect" id="connect-${esc(provider.id)}-hint" aria-live="polite">
         <div><h3>Finish connecting ChatGPT</h3><p>${subscriptionStatusMessage(current)}</p></div>
         <div class="subscription-code" aria-label="One-time verification code"><span>One-time code</span><code>${esc(current.userCode || 'Waiting for a code…')}</code></div>
-        <div class="subscription-actions">${verificationLink}<button class="btn btn-sm btn-ghost" type="button" data-cancel-subscription ${busy ? 'disabled' : ''}>${busy ? 'Cancelling…' : 'Cancel'}</button></div>
+        <div class="subscription-actions">${verificationLink}<button class="btn btn-sm btn-ghost" type="button" data-cancel-subscription data-subscription-focus="cancel" ${busy ? 'disabled' : ''}>${busy ? 'Cancelling…' : 'Cancel'}</button></div>
       </section>`,
+    };
+  }
+  if (current.status === 'refresh-error') {
+    return {
+      action: `<button class="btn btn-sm" type="button" data-retry-subscription-ping data-subscription-focus="retry-ping" ${busy ? 'disabled' : ''}>${busy ? 'Refreshing…' : 'Retry Ping'}</button>`,
+      panel: `<section class="subscription-connect subscription-connect-error" id="connect-${esc(provider.id)}-hint" aria-live="polite"><div><h3>ChatGPT is connected</h3><p>${subscriptionStatusMessage(current)}</p></div></section>`,
+    };
+  }
+  if (current.status === 'refreshing' || current.status === 'connected') {
+    return {
+      action: '',
+      panel: `<section class="subscription-connect" id="connect-${esc(provider.id)}-hint" aria-live="polite"><div><h3>ChatGPT is connected</h3><p>${subscriptionStatusMessage(current)}</p></div></section>`,
     };
   }
   return {
@@ -180,111 +195,16 @@ function subscriptionPanel(provider) {
 }
 
 function renderSubscriptionLogin() {
-  if (state) renderProviders();
-}
-
-function scheduleSubscriptionStatus(requestId) {
-  clearSubscriptionPolling();
-  subscriptionLogin.pollTimer = setTimeout(() => checkSubscriptionStatus(requestId), 2_500);
-}
-
-async function finishSubscriptionLogin(requestId) {
-  if (requestId !== subscriptionLogin.requestId) return;
-  clearSubscriptionPolling();
-  subscriptionLogin.busy = true;
-  renderSubscriptionLogin();
-  try {
-    await api('/admin/providers/openai-codex/ping', { method: 'POST' });
-    if (requestId !== subscriptionLogin.requestId) return;
-    subscriptionLogin.snapshot = null;
-    await refresh();
-    toast('ChatGPT subscription connected and provider status refreshed');
-  } catch (error) {
-    if (requestId !== subscriptionLogin.requestId) return;
-    subscriptionLogin.snapshot = { status: 'error' };
-    toast('ChatGPT connected, but Ping could not refresh the provider. Try Ping again.', true);
-    renderSubscriptionLogin();
-  } finally {
-    if (requestId === subscriptionLogin.requestId) {
-      subscriptionLogin.busy = false;
-      renderSubscriptionLogin();
-    }
-  }
-}
-
-async function checkSubscriptionStatus(requestId) {
-  if (requestId !== subscriptionLogin.requestId) return;
-  try {
-    const snapshot = await api('/admin/providers/openai-codex/connect');
-    if (requestId !== subscriptionLogin.requestId) return;
-    subscriptionLogin.snapshot = snapshot;
-    if (snapshot.status === 'pending') {
-      renderSubscriptionLogin();
-      scheduleSubscriptionStatus(requestId);
-    } else if (snapshot.status === 'ready') {
-      await finishSubscriptionLogin(requestId);
-    } else {
-      clearSubscriptionPolling();
-      renderSubscriptionLogin();
-    }
-  } catch (error) {
-    if (requestId !== subscriptionLogin.requestId) return;
-    clearSubscriptionPolling();
-    subscriptionLogin.snapshot = { status: 'error' };
-    toast('Could not check the ChatGPT connection. Check Codex, then try again.', true);
-    renderSubscriptionLogin();
-  }
-}
-
-async function startSubscriptionLogin() {
-  const requestId = invalidateSubscriptionLogin();
-  subscriptionLogin.providerId = 'openai-codex';
-  subscriptionLogin.snapshot = null;
-  subscriptionLogin.busy = true;
-  renderSubscriptionLogin();
-  try {
-    const snapshot = await api('/admin/providers/openai-codex/connect', { method: 'POST' });
-    if (requestId !== subscriptionLogin.requestId) return;
-    subscriptionLogin.snapshot = snapshot;
-    subscriptionLogin.busy = false;
-    if (snapshot.status === 'pending') {
-      renderSubscriptionLogin();
-      scheduleSubscriptionStatus(requestId);
-    } else if (snapshot.status === 'ready') {
-      await finishSubscriptionLogin(requestId);
-    } else {
-      clearSubscriptionPolling();
-      renderSubscriptionLogin();
-    }
-  } catch (error) {
-    if (requestId !== subscriptionLogin.requestId) return;
-    subscriptionLogin.snapshot = { status: 'error' };
-    subscriptionLogin.busy = false;
-    toast('Could not start the ChatGPT connection. Check Codex, then try again.', true);
-    renderSubscriptionLogin();
-  }
-}
-
-async function cancelSubscriptionLogin() {
-  const requestId = invalidateSubscriptionLogin();
-  subscriptionLogin.busy = true;
-  renderSubscriptionLogin();
-  try {
-    const snapshot = await api('/admin/providers/openai-codex/connect/cancel', { method: 'POST' });
-    if (requestId !== subscriptionLogin.requestId) return;
-    subscriptionLogin.snapshot = snapshot;
-    toast('ChatGPT connection cancelled');
-  } catch (error) {
-    if (requestId !== subscriptionLogin.requestId) return;
-    subscriptionLogin.snapshot = { status: 'error' };
-    toast('Could not cancel the ChatGPT connection. Check Codex, then try again.', true);
-  } finally {
-    if (requestId === subscriptionLogin.requestId) {
-      clearSubscriptionPolling();
-      subscriptionLogin.busy = false;
-      renderSubscriptionLogin();
-    }
-  }
+  const provider = state?.providers?.find((candidate) => candidate.id === 'openai-codex');
+  const card = provider && $('#providerList [data-provider="openai-codex"]');
+  if (!provider?.canConnectSubscription || !card) return;
+  const focus = document.activeElement?.closest?.('[data-provider="openai-codex"]')
+    ? document.activeElement.getAttribute('data-subscription-focus')
+    : null;
+  const subscription = subscriptionPanel(provider);
+  $('[data-subscription-action]', card).innerHTML = subscription.action;
+  $('[data-subscription-panel]', card).innerHTML = subscription.panel;
+  if (focus) ($(`[data-subscription-focus="${focus}"]`, card) || $('[data-subscription-focus="connect"]', card))?.focus();
 }
 
 function renderProviders() {
@@ -325,9 +245,9 @@ function renderProviders() {
             </div>
             <div class="provider-meta">${source ? `Authorized through ${esc(source)}.` : p.statusMessage ? esc(p.statusMessage) : 'No authorized credential source is currently available.'}</div>
           </div>
-          <div class="provider-actions">${subscription.action}<button class="btn btn-sm" type="button" data-provider-ping ${p.isPinging ? 'disabled' : ''}>${p.isPinging ? 'Pinging…' : 'Ping'}</button>${siteLink}</div>
+          <div class="provider-actions"><span data-subscription-action>${subscription.action}</span><button class="btn btn-sm" type="button" data-provider-ping ${p.isPinging ? 'disabled' : ''}>${p.isPinging ? 'Pinging…' : 'Ping'}</button>${siteLink}</div>
         </div>
-        ${subscription.panel}
+        <div data-subscription-panel>${subscription.panel}</div>
         <div class="provider-detail-grid">
           <section><h3>Quota and account status</h3><div class="quota-list">${quotaInfo}</div></section>
           <section><h3>Observed through SubChain</h3><div class="usage-grid"><span><strong>${Number(observed.requests || 0).toLocaleString()}</strong> requests</span><span><strong>${Number(observed.totalTokens || 0).toLocaleString()}</strong> tokens</span><span><strong>${esc(p.plan || 'unknown')}</strong> plan</span><span><strong>${p.lastPingAt ? new Date(p.lastPingAt).toLocaleString() : 'never'}</strong> last Ping</span></div></section>
@@ -340,11 +260,15 @@ function renderProviders() {
 
 $('#providerList').addEventListener('click', async (event) => {
   if (event.target.closest('[data-connect-subscription]')) {
-    await startSubscriptionLogin();
+    await subscriptionLogin.start();
     return;
   }
   if (event.target.closest('[data-cancel-subscription]')) {
-    await cancelSubscriptionLogin();
+    await subscriptionLogin.cancel();
+    return;
+  }
+  if (event.target.closest('[data-retry-subscription-ping]')) {
+    await subscriptionLogin.retryPing();
     return;
   }
   const button = event.target.closest('[data-provider-ping]');
@@ -961,7 +885,7 @@ $('#btnShortcutDismiss').addEventListener('click', async (e) => {
 async function refresh({ preserveHarnessEditor = false } = {}) {
   state = await api('/admin/state');
   renderOverview();
-  renderProviders();
+  if (subscriptionLogin.current().snapshot?.status !== 'pending') renderProviders();
   renderChain();
   renderAccess();
   if (!preserveHarnessEditor) renderHarness();
