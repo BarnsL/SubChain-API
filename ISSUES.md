@@ -24,14 +24,18 @@ private routing choices, imported prompt bodies, or machine-specific paths.
 
 ## Open issues
 
+No open release-blocking issues are recorded for this revision.
+
+## Closed issues
+
 ### SUB-017: Verify ChatGPT subscription enrollment release
 
-- **Status**: IN_PROGRESS
+- **Status**: DONE
+- **Completed**: 2026-08-17
 - **Priority**: P1
 - **Type**: Release verification
 - **Description**: The documented Codex app-server enrollment flow has automated
-  coverage and owner-authenticated local proof. Public publication verification
-  remains pending.
+  coverage, owner-authenticated local proof, and public release verification.
 - **Implementation**: The Providers card starts the documented
   `chatgptDeviceCode` flow through the official Codex app-server, displays only
   the official verification URL and one-time code, and refreshes normal Ping
@@ -56,12 +60,13 @@ private routing choices, imported prompt bodies, or machine-specific paths.
   6. The Harness page showed 70,165 presets from three sources. Two expanded
      sections remained open after an 11-second refresh, and the no-credential
      badge remained fitted and aligned.
-- **Pending release checks**:
-  1. Push the reviewed commit to the public remote.
-  2. Verify public remote availability after the push.
-  3. Verify the remote reports the intended single contributor.
-
-## Closed issues
+- **Release verification (2026-08-17)**:
+  1. `git push origin main` succeeded for the reviewed release revision.
+  2. Local and remote `main` matched immediately after the push.
+  3. The public GitHub repository returned HTTP 200.
+  4. The GitHub contributors API returned exactly one contributor, `BarnsL`.
+  5. This issue-closure commit is local documentation and is not claimed as
+     pushed.
 
 ### SUB-013: Complete the exact public-release audit
 
