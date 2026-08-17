@@ -14,13 +14,13 @@ subscription**. SubChain starts the documented Codex app-server
 the displayed one-time code only on that page. Do not paste the code elsewhere.
 
 Codex owns OAuth storage and refresh. The app-server `account/read` response
-enters SubChain only so it can allowlist account type, authentication status,
-plan, and required rate-limit data. SubChain does not access identity fields
-for use, retain, persist, log, or return them, and never copies ChatGPT tokens.
-It does not use undocumented consumer endpoints. A pending connection can be
-cancelled. An expired, failed, or cancelled connection needs a new start. If
-Ping reports a refresh error after connection, retry Ping instead of
-reconnecting.
+enters SubChain and supplies account and authentication state plus plan.
+Identity properties in that response are ignored and are not persisted, logged,
+or returned. A separate `account/rateLimits/read` call supplies quota and
+rate-limit buckets. SubChain never copies ChatGPT tokens and does not use
+undocumented consumer endpoints. A pending connection can be cancelled. An
+expired, failed, or cancelled connection needs a new start. If Ping reports a
+refresh error after connection, retry Ping instead of reconnecting.
 
 SubChain discovers the installed Codex command through a generic application
 location, the executable search path, or an explicit private runtime override.
@@ -28,10 +28,12 @@ No personal installation path is embedded in source or documentation.
 
 ### Ping
 
-The provider card's **Ping** action calls the documented account, model,
-rate-limit, and usage methods. It keeps the plan label, picker-visible models,
-quota windows, and aggregate usage fields. It discards account identity and
-token fields.
+The provider card's **Ping** action uses `account/read` for account and
+authentication state plus plan. It calls `model/list`,
+`account/rateLimits/read`, and `account/usage/read` separately for models,
+quota buckets, and aggregate usage. It keeps only the plan label,
+picker-visible models, quota windows, and aggregate usage fields. Identity and
+token properties are not persisted, logged, or returned.
 
 ### Completion boundary
 

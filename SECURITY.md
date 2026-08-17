@@ -47,11 +47,11 @@ operation runs. The only enrollment fields returned are a sanitized state, an
 official HTTPS verification URL, a one-time code, and expiry when supplied.
 Never copy the code into an issue, log, or third-party page.
 
-The Codex app-server `account/read` response enters the process. SubChain
-allowlists only the account type, authentication status, plan, and required
-rate-limit data for routing and provider status. It does not access identity
-fields for use, retain, persist, log, or return them. SubChain never copies
-ChatGPT tokens, and does not use undocumented consumer endpoints.
+The Codex app-server `account/read` response enters the process and supplies
+account and authentication state plus plan. Identity properties in that
+response are ignored and are not persisted, logged, or returned. SubChain calls
+`account/rateLimits/read` separately for quota and rate-limit buckets. It never
+copies ChatGPT tokens and does not use undocumented consumer endpoints.
 
 The direct OpenAI API lane is separate. It uses an API key and API Platform
 billing, while the Codex lane uses a ChatGPT subscription managed by Codex.
