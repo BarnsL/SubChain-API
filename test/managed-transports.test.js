@@ -13,31 +13,36 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-function deviceCodeRpc({ account = null } = {}) {
+function deviceCodeRpc({ account = null, expiresAt = 901_000, onLoginStart } = {}) {
   const calls = [];
   const listeners = new Map();
   let closed = 0;
-  return {
+  const rpc = {
     calls,
     get closed() { return closed; },
     emit(method, params) { listeners.get(method)?.(params); },
     async request(method, params) {
       calls.push({ method, params });
       if (method === 'account/read') return { account, requiresOpenaiAuth: true };
-      if (method === 'account/login/start') return {
-        type: 'chatgptDeviceCode',
-        loginId: 'login-1',
-        verificationUrl: 'https://auth.openai.com/codex/device',
-        userCode: 'ABCD-1234',
-        expiresAt: 901_000,
-        accessToken: 'never-returned',
-      };
+      if (method === 'account/login/start') {
+        const result = {
+          type: 'chatgptDeviceCode',
+          loginId: 'login-1',
+          verificationUrl: 'https://auth.openai.com/codex/device',
+          userCode: 'ABCD-1234',
+          expiresAt,
+          accessToken: 'never-returned',
+        };
+        onLoginStart?.(rpc, result);
+        return result;
+      }
       if (method === 'account/login/cancel') return {};
       throw new Error(`unexpected ${method}`);
     },
     subscribe(method, listener) { listeners.set(method, listener); return () => listeners.delete(method); },
     close() { closed += 1; },
   };
+  return rpc;
 }
 
 test('managed ChatGPT login returns a sanitized ready snapshot for an existing subscription', async () => {
@@ -57,7 +62,7 @@ test('managed ChatGPT login returns a sanitized ready snapshot for an existing s
 
 test('managed ChatGPT device-code login reuses a pending session and completes only for its matching notification', async () => {
   const rpc = deviceCodeRpc();
-  const managed = createManagedTransports({ codexConnect: async () => rpc });
+  const managed = createManagedTransports({ codexConnect: async () => rpc, now: () => 900_000 });
 
   const pending = await managed.startLogin('codex-app-server');
   assert.deepEqual(pending, {
@@ -78,9 +83,35 @@ test('managed ChatGPT device-code login reuses a pending session and completes o
   assert.equal(rpc.closed, 1);
 });
 
+test('managed ChatGPT login immediately expires stale device instructions and clears them', async () => {
+  const rpc = deviceCodeRpc({ expiresAt: 901_000 });
+  const managed = createManagedTransports({ codexConnect: async () => rpc, now: () => 901_000 });
+
+  const snapshot = await managed.startLogin('codex-app-server');
+
+  assert.deepEqual(snapshot, { status: 'expired' });
+  assert.deepEqual(managed.loginStatus('codex-app-server'), { status: 'expired' });
+  assert.equal(rpc.closed, 1);
+});
+
+test('managed ChatGPT login keeps a completion emitted with its start response', async () => {
+  const rpc = deviceCodeRpc({
+    onLoginStart(client, result) {
+      client.emit('account/login/completed', { loginId: result.loginId, success: true, error: null });
+    },
+  });
+  const managed = createManagedTransports({ codexConnect: async () => rpc, now: () => 900_000 });
+
+  const snapshot = await managed.startLogin('codex-app-server');
+
+  assert.deepEqual(snapshot, { status: 'ready' });
+  assert.deepEqual(managed.loginStatus('codex-app-server'), { status: 'ready' });
+  assert.equal(rpc.closed, 1);
+});
+
 test('managed ChatGPT login cancellation drops the device code and closes the app server', async () => {
   const rpc = deviceCodeRpc();
-  const managed = createManagedTransports({ codexConnect: async () => rpc });
+  const managed = createManagedTransports({ codexConnect: async () => rpc, now: () => 900_000 });
 
   await managed.startLogin('codex-app-server');
   const cancelled = await managed.cancelLogin('codex-app-server');

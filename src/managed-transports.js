@@ -328,6 +328,7 @@ export function createManagedTransports({
   commandRunner = runCommand,
   dataDir = resolveDataDir(),
   timeoutMs = 120_000,
+  now = Date.now,
 } = {}) {
   const codexOptions = { cwd: privateWorkspace('codex', dataDir), timeoutMs };
   const antigravityCwd = privateWorkspace('antigravity', dataDir);
@@ -359,17 +360,32 @@ export function createManagedTransports({
           return codexLoginStatus();
         }
 
-        const started = await rpc.request('account/login/start', { type: 'chatgptDeviceCode' });
-        const instructions = deviceCodeInstructions(started);
+        let loginId;
+        const completedBeforeLoginId = [];
         const unsubscribe = rpc.subscribe?.('account/login/completed', (event) => {
-          if (event?.loginId !== instructions.loginId) return;
+          if (!loginId) {
+            completedBeforeLoginId.push(event);
+            return;
+          }
+          if (event?.loginId !== loginId) return;
           finishCodexLogin(event.success
             ? { status: 'ready' }
             : { status: 'failed', message: 'ChatGPT sign-in did not complete' });
         }) || (() => {});
+        const started = await rpc.request('account/login/start', { type: 'chatgptDeviceCode' });
+        const instructions = deviceCodeInstructions(started);
+        loginId = instructions.loginId;
         codexLogin = { ...instructions, rpc, unsubscribe };
-        if (instructions.snapshot.expiresAt > Date.now()) {
-          const timer = setTimeout(() => finishCodexLogin({ status: 'expired' }), instructions.snapshot.expiresAt - Date.now());
+        const completion = completedBeforeLoginId.find((event) => event?.loginId === loginId);
+        if (completion) {
+          return finishCodexLogin(completion.success
+            ? { status: 'ready' }
+            : { status: 'failed', message: 'ChatGPT sign-in did not complete' });
+        }
+        const expiresIn = instructions.snapshot.expiresAt - now();
+        if (Number.isFinite(expiresIn) && expiresIn <= 0) return finishCodexLogin({ status: 'expired' });
+        if (Number.isFinite(expiresIn)) {
+          const timer = setTimeout(() => finishCodexLogin({ status: 'expired' }), expiresIn);
           timer.unref?.();
           codexLogin.timer = timer;
         }
