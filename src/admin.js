@@ -94,8 +94,9 @@ export function routingInventory(runtime, quota, {
     const def = providerDef(providerId);
     const credential = def.transport === 'http' ? credentialResolver(providerId) : null;
     const status = statusStore?.get(providerId) || null;
-    const managedReady = def.transport !== 'http' && Boolean(managedProviderAvailable(providerId));
-    const hasCredential = Boolean(credential) || managedReady || status?.health === 'ready';
+    const managedRuntimeAvailable = def.transport !== 'http' && Boolean(managedProviderAvailable(providerId));
+    const managedAuthenticated = def.transport !== 'http' && status?.health === 'ready';
+    const hasCredential = Boolean(credential) || managedAuthenticated;
     const trackedQuota = quota?.get(providerId) || null;
     const storedQuotas = Array.isArray(status?.quotas) ? status.quotas : [];
     const statusQuota = storedQuotas.length ? {
@@ -122,7 +123,10 @@ export function routingInventory(runtime, quota, {
       health: status?.health || (hasCredential ? 'unknown' : 'missing'),
       statusMessage: status?.message || null,
       hasCredential,
-      credentialSource: credential?.source || (managedReady ? 'provider-application' : null),
+      canConnectSubscription: providerId === 'openai-codex'
+        && managedRuntimeAvailable
+        && status?.health === 'missing',
+      credentialSource: credential?.source || (managedAuthenticated ? 'provider-application' : null),
       models: status?.models?.length
         ? status.models
         : def.fallbackModels.map((id) => ({ id, label: id, inputModalities: [], capabilities: {}, quotaFamily: null })),

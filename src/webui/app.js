@@ -14,6 +14,7 @@ let accessKeyValue = null;
 const harnessExpansion = createHarnessExpansionState();
 const presetLibrary = { loaded: false, loading: false, query: '', source: '', component: '', page: null, selected: null, request: 0 };
 let activeHarnessId = localStorage.getItem('subchain.harness.active') || 'default';
+const subscriptionLogin = { providerId: null, snapshot: null, busy: false, pollTimer: null, requestId: 0 };
 
 // ── helpers ───────────────────────────────────────────────────────────
 
@@ -127,6 +128,165 @@ function renderOverview() {
 
 // ── providers ────────────────────────────────────────────────────────
 
+function clearSubscriptionPolling() {
+  clearTimeout(subscriptionLogin.pollTimer);
+  subscriptionLogin.pollTimer = null;
+}
+
+function invalidateSubscriptionLogin() {
+  clearSubscriptionPolling();
+  subscriptionLogin.requestId += 1;
+  return subscriptionLogin.requestId;
+}
+
+function subscriptionStatusMessage(snapshot) {
+  if (snapshot?.status === 'pending') return 'Use the official verification page and enter this one-time code.';
+  if (snapshot?.status === 'cancelled') return 'Connection cancelled. Start again when you are ready.';
+  if (snapshot?.status === 'expired') return 'That code expired. Start a new ChatGPT connection to get another one.';
+  return 'SubChain could not complete the ChatGPT connection. Check that Codex can sign in to your subscription, then try again.';
+}
+
+function subscriptionPanel(provider) {
+  if (!provider.canConnectSubscription) return { action: '', panel: '' };
+  const current = subscriptionLogin.providerId === provider.id ? subscriptionLogin.snapshot : null;
+  const busy = subscriptionLogin.providerId === provider.id && subscriptionLogin.busy;
+  const canStart = !current || ['cancelled', 'expired', 'error'].includes(current.status);
+  const action = canStart
+    ? `<button class="btn btn-sm btn-primary" type="button" data-connect-subscription ${busy ? 'disabled' : ''} aria-describedby="connect-${esc(provider.id)}-hint">${busy ? 'Connecting…' : 'Connect ChatGPT subscription'}</button>`
+    : '';
+  if (!current) {
+    return {
+      action,
+      panel: `<p class="subscription-hint" id="connect-${esc(provider.id)}-hint">Connect through the official ChatGPT verification flow. SubChain never receives your ChatGPT password or tokens.</p>`,
+    };
+  }
+  if (current.status === 'pending') {
+    const verificationLink = current.verificationUrl
+      ? `<a class="btn btn-sm" href="${esc(current.verificationUrl)}" target="_blank" rel="noopener noreferrer">${icon.ext} Open official verification</a>`
+      : '';
+    return {
+      action,
+      panel: `<section class="subscription-connect" id="connect-${esc(provider.id)}-hint" aria-live="polite">
+        <div><h3>Finish connecting ChatGPT</h3><p>${subscriptionStatusMessage(current)}</p></div>
+        <div class="subscription-code" aria-label="One-time verification code"><span>One-time code</span><code>${esc(current.userCode || 'Waiting for a code…')}</code></div>
+        <div class="subscription-actions">${verificationLink}<button class="btn btn-sm btn-ghost" type="button" data-cancel-subscription ${busy ? 'disabled' : ''}>${busy ? 'Cancelling…' : 'Cancel'}</button></div>
+      </section>`,
+    };
+  }
+  return {
+    action,
+    panel: `<section class="subscription-connect subscription-connect-error" id="connect-${esc(provider.id)}-hint" aria-live="polite"><div><h3>ChatGPT connection needs attention</h3><p>${subscriptionStatusMessage(current)}</p></div></section>`,
+  };
+}
+
+function renderSubscriptionLogin() {
+  if (state) renderProviders();
+}
+
+function scheduleSubscriptionStatus(requestId) {
+  clearSubscriptionPolling();
+  subscriptionLogin.pollTimer = setTimeout(() => checkSubscriptionStatus(requestId), 2_500);
+}
+
+async function finishSubscriptionLogin(requestId) {
+  if (requestId !== subscriptionLogin.requestId) return;
+  clearSubscriptionPolling();
+  subscriptionLogin.busy = true;
+  renderSubscriptionLogin();
+  try {
+    await api('/admin/providers/openai-codex/ping', { method: 'POST' });
+    if (requestId !== subscriptionLogin.requestId) return;
+    subscriptionLogin.snapshot = null;
+    await refresh();
+    toast('ChatGPT subscription connected and provider status refreshed');
+  } catch (error) {
+    if (requestId !== subscriptionLogin.requestId) return;
+    subscriptionLogin.snapshot = { status: 'error' };
+    toast('ChatGPT connected, but Ping could not refresh the provider. Try Ping again.', true);
+    renderSubscriptionLogin();
+  } finally {
+    if (requestId === subscriptionLogin.requestId) {
+      subscriptionLogin.busy = false;
+      renderSubscriptionLogin();
+    }
+  }
+}
+
+async function checkSubscriptionStatus(requestId) {
+  if (requestId !== subscriptionLogin.requestId) return;
+  try {
+    const snapshot = await api('/admin/providers/openai-codex/connect');
+    if (requestId !== subscriptionLogin.requestId) return;
+    subscriptionLogin.snapshot = snapshot;
+    if (snapshot.status === 'pending') {
+      renderSubscriptionLogin();
+      scheduleSubscriptionStatus(requestId);
+    } else if (snapshot.status === 'ready') {
+      await finishSubscriptionLogin(requestId);
+    } else {
+      clearSubscriptionPolling();
+      renderSubscriptionLogin();
+    }
+  } catch (error) {
+    if (requestId !== subscriptionLogin.requestId) return;
+    clearSubscriptionPolling();
+    subscriptionLogin.snapshot = { status: 'error' };
+    toast('Could not check the ChatGPT connection. Check Codex, then try again.', true);
+    renderSubscriptionLogin();
+  }
+}
+
+async function startSubscriptionLogin() {
+  const requestId = invalidateSubscriptionLogin();
+  subscriptionLogin.providerId = 'openai-codex';
+  subscriptionLogin.snapshot = null;
+  subscriptionLogin.busy = true;
+  renderSubscriptionLogin();
+  try {
+    const snapshot = await api('/admin/providers/openai-codex/connect', { method: 'POST' });
+    if (requestId !== subscriptionLogin.requestId) return;
+    subscriptionLogin.snapshot = snapshot;
+    subscriptionLogin.busy = false;
+    if (snapshot.status === 'pending') {
+      renderSubscriptionLogin();
+      scheduleSubscriptionStatus(requestId);
+    } else if (snapshot.status === 'ready') {
+      await finishSubscriptionLogin(requestId);
+    } else {
+      clearSubscriptionPolling();
+      renderSubscriptionLogin();
+    }
+  } catch (error) {
+    if (requestId !== subscriptionLogin.requestId) return;
+    subscriptionLogin.snapshot = { status: 'error' };
+    subscriptionLogin.busy = false;
+    toast('Could not start the ChatGPT connection. Check Codex, then try again.', true);
+    renderSubscriptionLogin();
+  }
+}
+
+async function cancelSubscriptionLogin() {
+  const requestId = invalidateSubscriptionLogin();
+  subscriptionLogin.busy = true;
+  renderSubscriptionLogin();
+  try {
+    const snapshot = await api('/admin/providers/openai-codex/connect/cancel', { method: 'POST' });
+    if (requestId !== subscriptionLogin.requestId) return;
+    subscriptionLogin.snapshot = snapshot;
+    toast('ChatGPT connection cancelled');
+  } catch (error) {
+    if (requestId !== subscriptionLogin.requestId) return;
+    subscriptionLogin.snapshot = { status: 'error' };
+    toast('Could not cancel the ChatGPT connection. Check Codex, then try again.', true);
+  } finally {
+    if (requestId === subscriptionLogin.requestId) {
+      clearSubscriptionPolling();
+      subscriptionLogin.busy = false;
+      renderSubscriptionLogin();
+    }
+  }
+}
+
 function renderProviders() {
   $('#providerList').innerHTML = state.providers
     .map((p) => {
@@ -150,6 +310,7 @@ function renderProviders() {
       const siteLink = p.subscriptionUrl
         ? `<a class="btn btn-sm btn-ghost" href="${esc(p.subscriptionUrl)}" target="_blank" rel="noopener noreferrer">${icon.ext} Manage subscription</a>`
         : '';
+      const subscription = subscriptionPanel(p);
 
       return `<article class="card provider" data-provider="${esc(p.id)}">
         <div class="provider-head">
@@ -164,8 +325,9 @@ function renderProviders() {
             </div>
             <div class="provider-meta">${source ? `Authorized through ${esc(source)}.` : p.statusMessage ? esc(p.statusMessage) : 'No authorized credential source is currently available.'}</div>
           </div>
-          <div class="provider-actions"><button class="btn btn-sm" type="button" data-provider-ping ${p.isPinging ? 'disabled' : ''}>${p.isPinging ? 'Pinging…' : 'Ping'}</button>${siteLink}</div>
+          <div class="provider-actions">${subscription.action}<button class="btn btn-sm" type="button" data-provider-ping ${p.isPinging ? 'disabled' : ''}>${p.isPinging ? 'Pinging…' : 'Ping'}</button>${siteLink}</div>
         </div>
+        ${subscription.panel}
         <div class="provider-detail-grid">
           <section><h3>Quota and account status</h3><div class="quota-list">${quotaInfo}</div></section>
           <section><h3>Observed through SubChain</h3><div class="usage-grid"><span><strong>${Number(observed.requests || 0).toLocaleString()}</strong> requests</span><span><strong>${Number(observed.totalTokens || 0).toLocaleString()}</strong> tokens</span><span><strong>${esc(p.plan || 'unknown')}</strong> plan</span><span><strong>${p.lastPingAt ? new Date(p.lastPingAt).toLocaleString() : 'never'}</strong> last Ping</span></div></section>
@@ -177,6 +339,14 @@ function renderProviders() {
 }
 
 $('#providerList').addEventListener('click', async (event) => {
+  if (event.target.closest('[data-connect-subscription]')) {
+    await startSubscriptionLogin();
+    return;
+  }
+  if (event.target.closest('[data-cancel-subscription]')) {
+    await cancelSubscriptionLogin();
+    return;
+  }
   const button = event.target.closest('[data-provider-ping]');
   if (!button) return;
   const card = button.closest('[data-provider]');

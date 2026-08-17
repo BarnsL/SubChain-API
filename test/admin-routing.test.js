@@ -86,3 +86,25 @@ test('a local key can target one numbered provider subscription directly', () =>
   });
   assert.deepEqual(created.key.target, { type: 'provider', id: 'google1' });
 });
+
+test('managed provider inventory distinguishes an available runtime from a missing ChatGPT login', () => {
+  const runtime = makeRuntime();
+  const accounts = new Map([
+    ['openai-codex', { providerId: 'openai-codex', health: 'missing' }],
+    ['google-antigravity', { providerId: 'google-antigravity', health: 'ready' }],
+  ]);
+  const providers = routingInventory(runtime, null, {
+    statusStore: {
+      list: () => [...accounts.values()],
+      get: (providerId) => accounts.get(providerId) || null,
+    },
+    managedProviderAvailable: () => true,
+  }).providers;
+  const codex = providers.find((provider) => provider.id === 'openai-codex');
+  const antigravity = providers.find((provider) => provider.id === 'google-antigravity');
+
+  assert.equal(codex.hasCredential, false);
+  assert.equal(codex.canConnectSubscription, true);
+  assert.equal(antigravity.hasCredential, true);
+  assert.equal(antigravity.canConnectSubscription, false);
+});
