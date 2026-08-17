@@ -175,6 +175,9 @@ async function pingCodex(connect, options) {
     if (account?.requiresOpenaiAuth && !account?.account) {
       throw Object.assign(new Error('Sign in with Codex before using the managed subscription'), { statusCode: 409 });
     }
+    if (account?.account?.type !== 'chatgpt') {
+      throw Object.assign(new Error('Codex account is not backed by a ChatGPT subscription'), { statusCode: 409 });
+    }
     const models = await rpc.request('model/list', { limit: 100, includeHidden: false });
     const limits = await rpc.request('account/rateLimits/read');
     let usage = {};
@@ -286,6 +289,40 @@ function antigravityResult(output) {
   }
 }
 
+function loginSnapshot({ status, verificationUrl, userCode, expiresAt, message } = {}) {
+  const snapshot = { status: String(status || 'idle') };
+  if (typeof verificationUrl === 'string') snapshot.verificationUrl = verificationUrl;
+  if (typeof userCode === 'string') snapshot.userCode = userCode;
+  if (Number.isFinite(expiresAt)) snapshot.expiresAt = expiresAt;
+  if (typeof message === 'string') snapshot.message = message;
+  return snapshot;
+}
+
+function deviceCodeInstructions(result) {
+  let verificationUrl;
+  try {
+    verificationUrl = new URL(String(result?.verificationUrl || ''));
+  } catch {
+    throw new Error('Codex returned invalid ChatGPT sign-in instructions');
+  }
+  const userCode = typeof result?.userCode === 'string' ? result.userCode : '';
+  if (verificationUrl.protocol !== 'https:' || !/^[A-Za-z0-9-]{4,64}$/.test(userCode)) {
+    throw new Error('Codex returned invalid ChatGPT sign-in instructions');
+  }
+  if (typeof result?.loginId !== 'string' || !result.loginId.trim()) {
+    throw new Error('Codex returned invalid ChatGPT sign-in instructions');
+  }
+  return {
+    loginId: result.loginId,
+    snapshot: loginSnapshot({
+      status: 'pending',
+      verificationUrl: verificationUrl.toString(),
+      userCode,
+      ...(Number.isFinite(result.expiresAt) && result.expiresAt > 0 ? { expiresAt: result.expiresAt } : {}),
+    }),
+  };
+}
+
 export function createManagedTransports({
   codexConnect = defaultCodexConnect,
   commandRunner = runCommand,
@@ -295,6 +332,69 @@ export function createManagedTransports({
   const codexOptions = { cwd: privateWorkspace('codex', dataDir), timeoutMs };
   const antigravityCwd = privateWorkspace('antigravity', dataDir);
   const command = process.env.SUBCHAIN_ANTIGRAVITY_COMMAND || 'agy';
+  let codexLogin = { snapshot: loginSnapshot() };
+  let startingCodexLogin = null;
+
+  const finishCodexLogin = (snapshot) => {
+    if (codexLogin.timer) clearTimeout(codexLogin.timer);
+    codexLogin.unsubscribe?.();
+    codexLogin.rpc?.close?.();
+    codexLogin = { snapshot: loginSnapshot(snapshot) };
+    return loginSnapshot(codexLogin.snapshot);
+  };
+
+  const codexLoginStatus = () => loginSnapshot(codexLogin.snapshot);
+
+  const startCodexLogin = async () => {
+    if (codexLogin.snapshot.status === 'pending') return codexLoginStatus();
+    if (startingCodexLogin) return startingCodexLogin;
+    startingCodexLogin = (async () => {
+      let rpc;
+      try {
+        rpc = await codexConnect(codexOptions);
+        const account = await rpc.request('account/read', { refreshToken: false });
+        if (account?.account?.type === 'chatgpt') {
+          rpc.close?.();
+          codexLogin = { snapshot: loginSnapshot({ status: 'ready' }) };
+          return codexLoginStatus();
+        }
+
+        const started = await rpc.request('account/login/start', { type: 'chatgptDeviceCode' });
+        const instructions = deviceCodeInstructions(started);
+        const unsubscribe = rpc.subscribe?.('account/login/completed', (event) => {
+          if (event?.loginId !== instructions.loginId) return;
+          finishCodexLogin(event.success
+            ? { status: 'ready' }
+            : { status: 'failed', message: 'ChatGPT sign-in did not complete' });
+        }) || (() => {});
+        codexLogin = { ...instructions, rpc, unsubscribe };
+        if (instructions.snapshot.expiresAt > Date.now()) {
+          const timer = setTimeout(() => finishCodexLogin({ status: 'expired' }), instructions.snapshot.expiresAt - Date.now());
+          timer.unref?.();
+          codexLogin.timer = timer;
+        }
+        return codexLoginStatus();
+      } catch (error) {
+        rpc?.close?.();
+        codexLogin = { snapshot: loginSnapshot({ status: 'failed', message: 'Could not start ChatGPT sign-in' }) };
+        throw new Error('Could not start ChatGPT sign-in');
+      } finally {
+        startingCodexLogin = null;
+      }
+    })();
+    return startingCodexLogin;
+  };
+
+  const cancelCodexLogin = async () => {
+    if (codexLogin.snapshot.status !== 'pending') return codexLoginStatus();
+    try {
+      await codexLogin.rpc.request('account/login/cancel', { loginId: codexLogin.loginId });
+    } catch {
+      return finishCodexLogin({ status: 'failed', message: 'Could not cancel ChatGPT sign-in' });
+    }
+    return finishCodexLogin({ status: 'cancelled' });
+  };
+
   const handlers = {
     'codex-app-server': {
       ping: () => pingCodex(codexConnect, codexOptions),
@@ -345,6 +445,18 @@ export function createManagedTransports({
     request(transport, link, body) {
       if (!handlers[transport]) throw new Error('Managed provider client is unavailable');
       return handlers[transport].request(link, body);
+    },
+    startLogin(transport) {
+      if (transport !== 'codex-app-server') throw Object.assign(new Error('Managed provider client is unavailable'), { statusCode: 409 });
+      return startCodexLogin();
+    },
+    loginStatus(transport) {
+      if (transport !== 'codex-app-server') throw Object.assign(new Error('Managed provider client is unavailable'), { statusCode: 409 });
+      return codexLoginStatus();
+    },
+    cancelLogin(transport) {
+      if (transport !== 'codex-app-server') throw Object.assign(new Error('Managed provider client is unavailable'), { statusCode: 409 });
+      return cancelCodexLogin();
     },
     probes: {
       'codex-app-server': () => handlers['codex-app-server'].ping(),

@@ -13,6 +13,93 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+function deviceCodeRpc({ account = null } = {}) {
+  const calls = [];
+  const listeners = new Map();
+  let closed = 0;
+  return {
+    calls,
+    get closed() { return closed; },
+    emit(method, params) { listeners.get(method)?.(params); },
+    async request(method, params) {
+      calls.push({ method, params });
+      if (method === 'account/read') return { account, requiresOpenaiAuth: true };
+      if (method === 'account/login/start') return {
+        type: 'chatgptDeviceCode',
+        loginId: 'login-1',
+        verificationUrl: 'https://auth.openai.com/codex/device',
+        userCode: 'ABCD-1234',
+        expiresAt: 901_000,
+        accessToken: 'never-returned',
+      };
+      if (method === 'account/login/cancel') return {};
+      throw new Error(`unexpected ${method}`);
+    },
+    subscribe(method, listener) { listeners.set(method, listener); return () => listeners.delete(method); },
+    close() { closed += 1; },
+  };
+}
+
+test('managed ChatGPT login returns a sanitized ready snapshot for an existing subscription', async () => {
+  const rpc = deviceCodeRpc({
+    account: { type: 'chatgpt', planType: 'plus', email: 'private-at-example.invalid', accessToken: 'never-returned' },
+  });
+  const managed = createManagedTransports({ codexConnect: async () => rpc });
+
+  const snapshot = await managed.startLogin('codex-app-server');
+
+  assert.deepEqual(snapshot, { status: 'ready' });
+  assert.equal(JSON.stringify(snapshot).includes('private-at-example.invalid'), false);
+  assert.equal(JSON.stringify(snapshot).includes('accessToken'), false);
+  assert.deepEqual(rpc.calls.map((call) => call.method), ['account/read']);
+  assert.equal(rpc.closed, 1);
+});
+
+test('managed ChatGPT device-code login reuses a pending session and completes only for its matching notification', async () => {
+  const rpc = deviceCodeRpc();
+  const managed = createManagedTransports({ codexConnect: async () => rpc });
+
+  const pending = await managed.startLogin('codex-app-server');
+  assert.deepEqual(pending, {
+    status: 'pending',
+    verificationUrl: 'https://auth.openai.com/codex/device',
+    userCode: 'ABCD-1234',
+    expiresAt: 901_000,
+  });
+  assert.equal(JSON.stringify(pending).includes('accessToken'), false);
+  assert.deepEqual(await managed.startLogin('codex-app-server'), pending);
+  assert.equal(rpc.calls.filter((call) => call.method === 'account/login/start').length, 1);
+
+  rpc.emit('account/login/completed', { loginId: 'other-login', success: true, error: null });
+  assert.deepEqual(managed.loginStatus('codex-app-server'), pending);
+
+  rpc.emit('account/login/completed', { loginId: 'login-1', success: true, error: null, accountId: 'private-account' });
+  assert.deepEqual(managed.loginStatus('codex-app-server'), { status: 'ready' });
+  assert.equal(rpc.closed, 1);
+});
+
+test('managed ChatGPT login cancellation drops the device code and closes the app server', async () => {
+  const rpc = deviceCodeRpc();
+  const managed = createManagedTransports({ codexConnect: async () => rpc });
+
+  await managed.startLogin('codex-app-server');
+  const cancelled = await managed.cancelLogin('codex-app-server');
+
+  assert.deepEqual(cancelled, { status: 'cancelled' });
+  assert.deepEqual(managed.loginStatus('codex-app-server'), { status: 'cancelled' });
+  assert.deepEqual(rpc.calls.at(-1), { method: 'account/login/cancel', params: { loginId: 'login-1' } });
+  assert.equal(rpc.closed, 1);
+});
+
+test('Codex Ping rejects an API-key account because it is not subscription-backed', async () => {
+  const rpc = deviceCodeRpc({ account: { type: 'apiKey', apiKey: 'never-returned' } });
+  const managed = createManagedTransports({ codexConnect: async () => rpc });
+
+  await assert.rejects(managed.ping('codex-app-server'), /ChatGPT subscription/i);
+  assert.deepEqual(rpc.calls.map((call) => call.method), ['account/read']);
+  assert.equal(rpc.closed, 1);
+});
+
 test('Codex account probing keeps plan, models, quotas, and usage but drops identity fields', async () => {
   const calls = [];
   const rpc = {
