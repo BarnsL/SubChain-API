@@ -30,8 +30,8 @@ private routing choices, imported prompt bodies, or machine-specific paths.
 - **Priority**: P1
 - **Type**: Release verification
 - **Description**: The documented Codex app-server enrollment flow has automated
-  coverage, but release proof still requires an owner-authenticated ChatGPT
-  subscription and a public publication check.
+  coverage and owner-authenticated local proof. Public publication verification
+  remains pending.
 - **Implementation**: The Providers card starts the documented
   `chatgptDeviceCode` flow through the official Codex app-server, displays only
   the official verification URL and one-time code, and refreshes normal Ping
@@ -40,15 +40,26 @@ private routing choices, imported prompt bodies, or machine-specific paths.
 - **Automated verification**: Managed transport, admin-route, inventory, and
   browser state tests cover pending, completion, cancellation, expiry, failure,
   refresh-error recovery, scoped routing, timer cleanup, and focus behavior.
+- **Live verification (2026-08-17)**:
+  1. Restarted the SubChain worker from merged `main`. The loopback Connect
+     status route returned 200 with `Cache-Control: no-store`.
+  2. Manual OpenAI Codex Ping returned 200 and reported ready, plan `prolite`,
+     seven discovered models, and two quota buckets.
+  3. Created or reused local key id `openai-subscription`, scoped directly to
+     provider `openai-codex` with the Default Harness. Its authenticated
+     `/v1/models` result contained `auto` plus all seven discovered models.
+  4. An authenticated `model: auto` completion returned 200 through
+     `openai-codex` on `gpt-5.6-sol`, with the exact response
+     `SUBCHAIN_OPENAI_SUBSCRIPTION_OK`.
+  5. Browser inspection showed the Providers card ready with seven discovered
+     models and the Local Keys card routed directly to OpenAI Codex.
+  6. The Harness page showed 70,165 presets from three sources. Two expanded
+     sections remained open after an 11-second refresh, and the no-credential
+     badge remained fitted and aligned.
 - **Pending release checks**:
-  1. Restart the exact worker and verify the dashboard plus loopback connect
-     status route.
-  2. Complete owner-authenticated enrollment and run an authenticated OpenAI
-     Codex Ping.
-  3. Create a dedicated scoped local key targeting `openai-codex` and verify its
-     scoped `/v1/models` result.
-  4. Send one minimal routed completion with that key without printing the key.
-  5. Push the reviewed commit and verify the expected public remote state.
+  1. Push the reviewed commit to the public remote.
+  2. Verify public remote availability after the push.
+  3. Verify the remote reports the intended single contributor.
 
 ## Closed issues
 
