@@ -63,6 +63,15 @@ const json = (res, code, obj, { cors = false } = {}) => {
 const fail = (res, code, message, extra = {}, { cors = false } = {}) =>
   json(res, code, { error: { message, type: 'subchain_error', ...extra } }, { cors });
 
+const managedLoginSnapshot = ({ status, verificationUrl, userCode, expiresAt, message } = {}) => {
+  const snapshot = { status: String(status || 'idle') };
+  if (typeof verificationUrl === 'string') snapshot.verificationUrl = verificationUrl;
+  if (typeof userCode === 'string') snapshot.userCode = userCode;
+  if (Number.isFinite(expiresAt)) snapshot.expiresAt = expiresAt;
+  if (typeof message === 'string') snapshot.message = message;
+  return snapshot;
+};
+
 function readJson(req, limitBytes = 8 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -191,6 +200,18 @@ export function createServer(runtime, quota, {
         }
         if (url.pathname === '/admin/access-key/rotate' && req.method === 'POST') {
           return json(res, 200, { key: rotateLocalKey(runtime, 'default') });
+        }
+        if (url.pathname === '/admin/providers/openai-codex/connect'
+          && ['GET', 'POST'].includes(req.method)) {
+          if (!managedTransports) return fail(res, 503, 'Managed provider client is unavailable');
+          const snapshot = req.method === 'POST'
+            ? await managedTransports.startLogin('codex-app-server')
+            : managedTransports.loginStatus('codex-app-server');
+          return json(res, 200, managedLoginSnapshot(snapshot));
+        }
+        if (url.pathname === '/admin/providers/openai-codex/connect/cancel' && req.method === 'POST') {
+          if (!managedTransports) return fail(res, 503, 'Managed provider client is unavailable');
+          return json(res, 200, managedLoginSnapshot(await managedTransports.cancelLogin('codex-app-server')));
         }
         const providerPingMatch = /^\/admin\/providers\/([a-z0-9-]+)\/ping$/.exec(url.pathname);
         if (providerPingMatch && req.method === 'POST') {

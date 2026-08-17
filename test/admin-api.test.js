@@ -96,6 +96,96 @@ test('admin mutations reject cross-site and non-JSON browser requests', async ()
   }
 });
 
+test('OpenAI Codex enrollment routes expose only managed login snapshots', async () => {
+  const pending = {
+    status: 'pending',
+    verificationUrl: 'https://auth.openai.com/codex/device',
+    userCode: 'ABCD-1234',
+    expiresAt: 901_000,
+    accessToken: 'never-returned',
+    loginId: 'private-login',
+    account: { email: 'private-at-example.invalid' },
+    stderr: 'private diagnostic',
+  };
+  const calls = [];
+  const managedTransports = {
+    async startLogin(transport) {
+      calls.push(['start', transport]);
+      return pending;
+    },
+    loginStatus(transport) {
+      calls.push(['status', transport]);
+      return pending;
+    },
+    async cancelLogin(transport) {
+      calls.push(['cancel', transport]);
+      return { status: 'cancelled', loginId: 'private-login', accessToken: 'never-returned' };
+    },
+  };
+  const server = createServer(runtime(), new QuotaTracker(), { ui: true, managedTransports });
+  const port = await listen(server);
+  const connectPath = `http://127.0.0.1:${port}/admin/providers/openai-codex/connect`;
+  try {
+    const started = await fetch(connectPath, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(started.status, 200);
+    assert.deepEqual(await started.json(), {
+      status: 'pending',
+      verificationUrl: 'https://auth.openai.com/codex/device',
+      userCode: 'ABCD-1234',
+      expiresAt: 901_000,
+    });
+
+    const status = await fetch(connectPath);
+    assert.equal(status.status, 200);
+    assert.deepEqual(await status.json(), {
+      status: 'pending',
+      verificationUrl: 'https://auth.openai.com/codex/device',
+      userCode: 'ABCD-1234',
+      expiresAt: 901_000,
+    });
+
+    const cancelled = await fetch(`${connectPath}/cancel`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(cancelled.status, 200);
+    assert.deepEqual(await cancelled.json(), { status: 'cancelled' });
+    assert.deepEqual(calls, [
+      ['start', 'codex-app-server'],
+      ['status', 'codex-app-server'],
+      ['cancel', 'codex-app-server'],
+    ]);
+
+    const otherProvider = await fetch(`http://127.0.0.1:${port}/admin/providers/google/connect`);
+    assert.equal(otherProvider.status, 404);
+  } finally {
+    await close(server);
+  }
+});
+
+test('OpenAI Codex enrollment rejects cross-site requests before starting login', async () => {
+  let startCount = 0;
+  const managedTransports = {
+    async startLogin() {
+      startCount += 1;
+      return { status: 'pending' };
+    },
+  };
+  const server = createServer(runtime(), new QuotaTracker(), { ui: true, managedTransports });
+  const port = await listen(server);
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/admin/providers/openai-codex/connect`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' },
+    });
+    assert.equal(response.status, 403);
+    assert.equal(startCount, 0);
+  } finally {
+    await close(server);
+  }
+});
+
 test('provider account routes rename and manually Ping exactly one subscription', async () => {
   const value = runtime();
   const account = {
