@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createSecretStore } from '../src/storage.js';
 import { createServer } from '../src/server.js';
 import { QuotaTracker } from '../src/quota.js';
+import { createProviderStatusStore } from '../src/provider-status.js';
 
 const routingModule = await import('../src/routing.js');
 const { authenticateLocalKey, createRoutingRuntime, rotateLocalKey, tokenForLocalKey } = routingModule;
@@ -60,6 +61,75 @@ test('a local key lists only its assigned chain models and rejects another chain
     });
     assert.equal(chat.status, 502);
     assert.match((await chat.json()).error.message, /No chain link serves model "beta-model"/);
+  } finally {
+    await close(server);
+  }
+});
+
+test('a direct provider key uses its discovered catalog instead of stale chain links', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'subchain-direct-provider-'));
+  const secretStore = createSecretStore({ dataDir });
+  secretStore.set('local-key:codex', 'codex-token');
+  const runtime = createRoutingRuntime({
+    secretStore,
+    routing: {
+      schemaVersion: 3,
+      chains: [
+        { id: 'default', name: 'Default', links: [{ provider: 'openai-codex', model: 'gpt-stale-chain' }] },
+        { id: 'other', name: 'Other', links: [{ provider: 'google', model: 'google-only' }] },
+      ],
+      localKeys: [{
+        id: 'codex', name: 'Codex key', secretRef: 'local-key:codex',
+        target: { type: 'provider', id: 'openai-codex' }, harnessId: 'default',
+      }],
+    },
+  });
+  const providerStatusStore = createProviderStatusStore({ file: path.join(dataDir, 'provider-status.json') });
+  providerStatusStore.recordPing('openai-codex', {
+    health: 'ready',
+    models: [{ id: 'gpt-live-first' }, { id: 'gpt-live-explicit' }],
+  });
+  const requests = [];
+  const managedTransports = {
+    has: (transport) => transport === 'codex-app-server',
+    async request(transport, link, body) {
+      requests.push({ transport, model: link.model, body });
+      return new Response(JSON.stringify({
+        id: 'chatcmpl-local', object: 'chat.completion', model: link.model,
+        choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+  };
+  const server = createServer(runtime, new QuotaTracker(), { ui: false, providerStatusStore, managedTransports });
+  const port = await listen(server);
+  const endpoint = `http://127.0.0.1:${port}`;
+  const headers = { Authorization: 'Bearer codex-token', 'Content-Type': 'application/json' };
+  try {
+    const models = await fetch(`${endpoint}/v1/models`, { headers });
+    assert.equal(models.status, 200);
+    assert.deepEqual((await models.json()).data.map((model) => model.id), ['auto', 'gpt-live-first', 'gpt-live-explicit']);
+
+    const automatic = await fetch(`${endpoint}/v1/chat/completions`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ model: 'auto', messages: [{ role: 'user', content: 'hello' }] }),
+    });
+    assert.equal(automatic.status, 200);
+    assert.equal(automatic.headers.get('x-subchain-model'), 'gpt-live-first');
+
+    const explicit = await fetch(`${endpoint}/v1/chat/completions`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ model: 'gpt-live-explicit', messages: [{ role: 'user', content: 'hello' }] }),
+    });
+    assert.equal(explicit.status, 200);
+    assert.equal(explicit.headers.get('x-subchain-model'), 'gpt-live-explicit');
+    assert.deepEqual(requests.map((request) => request.model), ['gpt-live-first', 'gpt-live-explicit']);
+
+    const inaccessible = await fetch(`${endpoint}/v1/chat/completions`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ model: 'google-only', messages: [{ role: 'user', content: 'hello' }] }),
+    });
+    assert.equal(inaccessible.status, 502);
+    assert.match((await inaccessible.json()).error.message, /No chain link serves model "google-only"/);
   } finally {
     await close(server);
   }

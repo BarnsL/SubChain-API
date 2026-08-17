@@ -143,6 +143,12 @@ export function createServer(runtime, quota, {
     providerProbeService,
     managedProviderAvailable: managedAvailable,
   });
+  const scopeFor = (localKey) => {
+    const providerModels = localKey.target.type === 'provider'
+      ? providerStatusStore?.get(localKey.target.id)?.models
+      : null;
+    return { ...scopeForLocalKey(runtime.routing, localKey, providerModels), settings: runtime.settings };
+  };
 
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
@@ -385,7 +391,7 @@ export function createServer(runtime, quota, {
           code: 'invalid_api_key',
         }, { cors: true });
       }
-      const scope = { ...scopeForLocalKey(runtime.routing, localKey), settings: runtime.settings };
+      const scope = scopeFor(localKey);
       const seen = new Set();
       const data = [{ id: 'auto', object: 'model', owned_by: 'subchain' }];
       for (const l of scope.links) {
@@ -424,11 +430,7 @@ export function createServer(runtime, quota, {
       const harnessLibrary = loadHarnessLibrary(harnessFile);
       const selectedHarness = harnessById(harnessLibrary, localKey.harnessId);
       body = applyHarnessConfig(body, selectedHarness);
-      const scope = {
-        ...scopeForLocalKey(runtime.routing, localKey),
-        settings: runtime.settings,
-        harnessHeaders: selectedHarness.components.headers,
-      };
+      const scope = { ...scopeFor(localKey), harnessHeaders: selectedHarness.components.headers };
 
       const abort = new AbortController();
       req.on('close', () => {

@@ -49,5 +49,8 @@ accounts.
 3. Confirm sanitized health, model list, quota windows when available, and Ping
    timestamp.
 4. Assign the account or a chain to a dedicated local key.
-5. Confirm `/v1/models` returns only that key's allowed models.
+5. Confirm `/v1/models` returns only that key's allowed models. A direct
+   provider key lists its last successful Ping catalog, independently of chain
+   membership. If no successful catalog exists yet, it uses the provider's
+   safe fallback catalog.
 6. Send one minimal completion and confirm observed usage increments.

@@ -44,8 +44,11 @@ API key: <local SubChain key>
 model: auto
 ```
 
-`auto` walks the selected chain. A named model is accepted only if it is inside
-that key's selected provider or chain.
+`auto` walks the selected chain. A direct-provider key instead uses that
+provider's last successful Ping catalog, choosing its first model for `auto`.
+A named model is accepted only if it is inside that key's selected provider or
+chain. Before a provider has a successful Ping catalog, SubChain uses its safe
+provider fallback catalog without changing routing metadata.
 
 ## Credentials and providers
 

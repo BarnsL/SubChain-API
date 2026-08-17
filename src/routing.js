@@ -140,16 +140,22 @@ export function loadRouting({ routingFile, legacyFile, legacyAccessKey = null, s
 }
 
 /** Build the only links a successfully authenticated local key may reach. */
-export function scopeForLocalKey(routing, key) {
+export function scopeForLocalKey(routing, key, providerModels = null) {
   if (key.target.type === 'chain') {
     const chain = routing.chains.find((candidate) => candidate.id === key.target.id);
     if (!chain) throw new Error(`local key ${key.id} has no chain target`);
     return { kind: 'chain', chain, links: materializeLinks(chain.links) };
   }
-  const links = routing.chains
-    .flatMap((chain) => chain.links)
-    .filter((link) => link.provider.replace(/\d+$/, '') === key.target.id);
-  return { kind: 'provider', provider: key.target.id, links: materializeLinks(links) };
+  const provider = providerDef(key.target.id);
+  const models = Array.isArray(providerModels)
+    ? providerModels.map((model) => typeof model === 'string' ? model : model?.id).filter(Boolean)
+    : [];
+  const catalog = models.length ? models : provider.fallbackModels;
+  return {
+    kind: 'provider',
+    provider: key.target.id,
+    links: materializeLinks(catalog.map((model) => ({ provider: key.target.id, model }))),
+  };
 }
 
 function materializeLinks(links) {
