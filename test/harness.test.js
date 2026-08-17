@@ -5,7 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 
 const harnessModule = await import('../src/harness.js');
-const { applyHarnessConfig, loadHarness } = harnessModule;
+const {
+  applyHarnessConfig,
+  createHarness,
+  loadHarnessLibrary,
+  removeHarness,
+  updateHarness,
+} = harnessModule;
 
 test('a selected Harness prompt becomes a system message before provider transforms run', () => {
   assert.equal(typeof applyHarnessConfig, 'function', 'Harness prompt application must exist');
@@ -24,8 +30,46 @@ test('a selected Harness prompt becomes a system message before provider transfo
 });
 
 test('Harness loading can target an isolated configuration file', () => {
-  assert.equal(typeof loadHarness, 'function', 'Harness loading must exist');
+  assert.equal(typeof loadHarnessLibrary, 'function', 'Harness library loading must exist');
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'subchain-harness-')), 'harness.json');
   fs.writeFileSync(file, JSON.stringify({ systemPrompts: { operatingInstructions: 'isolated prompt' } }), 'utf8');
-  assert.equal(loadHarness(file).systemPrompts.operatingInstructions, 'isolated prompt');
+  const library = loadHarnessLibrary(file);
+  assert.equal(library.schemaVersion, 2);
+  assert.equal(library.harnesses[0].id, 'default');
+  assert.equal(library.harnesses[0].components.operatingInstructions, 'isolated prompt');
+});
+
+test('Harness prompt components are composed in deterministic order', () => {
+  const configured = applyHarnessConfig(
+    { model: 'auto', messages: [{ role: 'user', content: 'Hello' }] },
+    {
+      components: {
+        identity: 'Identity',
+        operatingInstructions: 'Operate',
+        safetyPolicy: 'Safety',
+        outputStyle: 'Style',
+        persona: 'Persona',
+      },
+    },
+  );
+
+  assert.equal(configured.messages[0].content, 'Identity\n\nOperate\n\nSafety\n\nStyle\n\nPersona');
+});
+
+test('Harness administration creates unique ids and protects the Default Harness', () => {
+  assert.equal(typeof createHarness, 'function', 'Harness creation must exist');
+  assert.equal(typeof updateHarness, 'function', 'Harness updates must exist');
+  assert.equal(typeof removeHarness, 'function', 'Harness deletion must exist');
+  if (!createHarness || !updateHarness || !removeHarness) return;
+
+  const library = loadHarnessLibrary(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'subchain-harness-')), 'missing.json'));
+  const first = createHarness(library, { name: 'Research Mode' });
+  const second = createHarness(library, { name: 'Research Mode' });
+  assert.equal(first.id, 'research-mode');
+  assert.equal(second.id, 'research-mode-2');
+  updateHarness(library, first.id, { name: 'Research Safe', components: { safetyPolicy: 'Cite sources.' } });
+  assert.equal(first.name, 'Research Safe');
+  assert.equal(first.components.safetyPolicy, 'Cite sources.');
+  assert.throws(() => removeHarness(library, 'default'), /Default Harness cannot be deleted/i);
+  assert.equal(removeHarness(library, second.id).id, second.id);
 });

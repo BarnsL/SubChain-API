@@ -96,7 +96,7 @@ test('the loopback admin API lists and reads only imported preset entries', asyn
     });
     assert.equal(applied.status, 200);
     assert.equal((await applied.json()).harness.systemPrompts.persona, 'fixture preset body');
-    assert.equal(JSON.parse(fs.readFileSync(harnessFile, 'utf8')).systemPrompts.persona, 'fixture preset body');
+    assert.equal(JSON.parse(fs.readFileSync(harnessFile, 'utf8')).harnesses[0].components.persona, 'fixture preset body');
   } finally {
     await close(server);
   }

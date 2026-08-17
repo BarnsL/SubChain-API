@@ -116,17 +116,19 @@ export function routingInventory(runtime, quota) {
 }
 
 /** Add a distinct inbound API key and save only its reference in routing metadata. */
-export function addLocalKey(runtime, { id, name, target }) {
+export function addLocalKey(runtime, { id, name, target, harnessId = 'default' }) {
   if (runtime.routing.localKeys.length >= MAX_LOCAL_KEYS) {
     throw new Error(`routing supports at most ${MAX_LOCAL_KEYS} local keys`);
   }
   assertTarget(runtime, target);
+  routingId(harnessId, 'default');
   const keyId = uniqueId(runtime.routing.localKeys, id || name, 'key');
   const key = {
     id: keyId,
     name: typeof name === 'string' && name.trim() ? name.trim() : keyId,
     secretRef: `local-key:${keyId}`,
     target: { type: target.type, id: target.id },
+    harnessId,
   };
   runtime.routing.localKeys.push(key);
   const token = rotateLocalKey(runtime, keyId);
@@ -141,7 +143,7 @@ export function addLocalKey(runtime, { id, name, target }) {
 }
 
 /** Update a local key's display name or destination without rotating its token. */
-export function updateLocalKey(runtime, keyId, { name, target }) {
+export function updateLocalKey(runtime, keyId, { name, target, harnessId }) {
   const key = runtime.routing.localKeys.find((candidate) => candidate.id === keyId);
   if (!key) throw new Error(`unknown local key: ${keyId}`);
   if (name !== undefined) {
@@ -152,6 +154,7 @@ export function updateLocalKey(runtime, keyId, { name, target }) {
     assertTarget(runtime, target);
     key.target = { type: target.type, id: target.id };
   }
+  if (harnessId !== undefined) key.harnessId = routingId(harnessId, 'default');
   persistRouting(runtime);
   return key;
 }

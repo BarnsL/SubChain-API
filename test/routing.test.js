@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const routingModule = await import('../src/routing.js').catch(() => ({}));
-const { loadRouting, validateRouting } = routingModule;
+const { loadRouting, migrateRouting, validateRouting } = routingModule;
 
 function makeTempConfig(legacy) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'subchain-routing-'));
@@ -29,6 +29,7 @@ test('migrates the existing token and every legacy link into the valid Default k
     name: 'Default',
     secretRef: 'local-key:default',
     target: { type: 'chain', id: 'default' },
+    harnessId: 'default',
   });
   assert.equal(routing.chains[0].id, 'default');
   assert.equal(routing.chains[0].migrated, true);
@@ -44,6 +45,24 @@ test('marks the public starter chain as newly authored so it retains the five-li
   });
   const routing = loadRouting({ routingFile, legacyFile });
   assert.equal(routing.chains[0].migrated, false);
+});
+
+test('migrates schema version 2 local keys to the Default Harness', () => {
+  assert.equal(typeof migrateRouting, 'function', 'routing migration must exist');
+  if (typeof migrateRouting !== 'function') return;
+  const migrated = migrateRouting({
+    schemaVersion: 2,
+    chains: [{ id: 'default', name: 'Default', links: [{ provider: 'kimi', model: 'k3' }] }],
+    localKeys: [{
+      id: 'default',
+      name: 'Default',
+      secretRef: 'local-key:default',
+      target: { type: 'chain', id: 'default' },
+    }],
+  });
+
+  assert.equal(migrated.schemaVersion, 3);
+  assert.equal(migrated.localKeys[0].harnessId, 'default');
 });
 
 test('rejects an eleventh local key and a sixth link on a newly authored chain', () => {

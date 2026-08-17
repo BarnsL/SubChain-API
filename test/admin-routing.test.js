@@ -7,7 +7,7 @@ import { createSecretStore } from '../src/storage.js';
 import { createRoutingRuntime } from '../src/routing.js';
 
 const adminModule = await import('../src/admin.js');
-const { addChain, addChainLink, addLocalKey } = adminModule;
+const { addChain, addChainLink, addLocalKey, updateLocalKey } = adminModule;
 
 function makeRuntime() {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'subchain-admin-'));
@@ -48,4 +48,19 @@ test('routing administration caps keys and chains at ten and new chains at five 
   for (let index = 0; index < 4; index++) addChainLink(runtime, target.id, { provider: 'sakana', model: `sakana-${index}` });
   assert.equal(target.links.length, 5);
   assert.throws(() => addChainLink(runtime, target.id, { provider: 'sakana', model: 'sakana-5' }), /more than five links/);
+});
+
+test('local-key administration persists a named Harness without rotating its token', () => {
+  const runtime = makeRuntime();
+  const created = addLocalKey(runtime, {
+    name: 'Research',
+    target: { type: 'provider', id: 'zhipu' },
+    harnessId: 'research-safe',
+  });
+  const token = created.token;
+  assert.equal(created.key.harnessId, 'research-safe');
+
+  const updated = updateLocalKey(runtime, created.key.id, { harnessId: 'default' });
+  assert.equal(updated.harnessId, 'default');
+  assert.equal(runtime.secretStore.get(created.key.secretRef), token);
 });

@@ -29,11 +29,24 @@ function validateId(value, label) {
   }
 }
 
-/** Validate only committed routing metadata. Tokens stay in a separate secret store. */
-export function validateRouting(routing) {
-  if (!routing || routing.schemaVersion !== 2) {
-    throw new Error('routing config must use schemaVersion 2');
+/** Migrate secret-free routing metadata without touching local-key tokens. */
+export function migrateRouting(routing) {
+  if (!routing || (routing.schemaVersion !== 2 && routing.schemaVersion !== 3)) {
+    throw new Error('routing config must use schemaVersion 2 or 3');
   }
+  if (routing.schemaVersion === 3) return routing;
+  return {
+    ...routing,
+    schemaVersion: 3,
+    localKeys: Array.isArray(routing.localKeys)
+      ? routing.localKeys.map((key) => ({ ...key, harnessId: key.harnessId || 'default' }))
+      : routing.localKeys,
+  };
+}
+
+/** Validate only committed routing metadata. Tokens stay in a separate secret store. */
+export function validateRouting(input) {
+  const routing = migrateRouting(input);
   if (!Array.isArray(routing.chains) || !Array.isArray(routing.localKeys)) {
     throw new Error('routing config requires chains[] and localKeys[]');
   }
@@ -71,6 +84,7 @@ export function validateRouting(routing) {
       throw new Error(`local key ${key.id} references unknown chain ${key.target.id}`);
     }
     if (key.target.type === 'provider') validateId(key.target.id, 'provider target id');
+    validateId(key.harnessId, 'Harness id');
   }
 
   return routing;
@@ -78,10 +92,10 @@ export function validateRouting(routing) {
 
 /** Persist validated metadata without putting secrets in the routing file. */
 export function saveRouting(routing, file) {
-  validateRouting(routing);
+  const validated = validateRouting(routing);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(temporary, `${JSON.stringify(routing, null, 2)}\n`, 'utf8');
+  fs.writeFileSync(temporary, `${JSON.stringify(validated, null, 2)}\n`, 'utf8');
   fs.renameSync(temporary, file);
 }
 
@@ -90,14 +104,19 @@ export function saveRouting(routing, file) {
  * store to preserve the legacy token outside the committed routing manifest.
  */
 export function loadRouting({ routingFile, legacyFile, legacyAccessKey = null, secretStore = null }) {
-  if (fs.existsSync(routingFile)) return validateRouting(readJson(routingFile));
+  if (fs.existsSync(routingFile)) {
+    const raw = readJson(routingFile);
+    const routing = validateRouting(raw);
+    if (raw.schemaVersion !== routing.schemaVersion) saveRouting(routing, routingFile);
+    return routing;
+  }
 
   const legacy = readJson(legacyFile);
   if (!Array.isArray(legacy.chain) || !legacy.chain.length) {
     throw new Error('legacy chain config needs at least one link');
   }
   const routing = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     chains: [{
       id: 'default',
       name: 'Default chain',
@@ -109,6 +128,7 @@ export function loadRouting({ routingFile, legacyFile, legacyAccessKey = null, s
       name: 'Default',
       secretRef: 'local-key:default',
       target: { type: 'chain', id: 'default' },
+      harnessId: 'default',
     }],
   };
   validateRouting(routing);

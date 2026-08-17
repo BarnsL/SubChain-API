@@ -1,61 +1,208 @@
+// Versioned, private Harness library and deterministic request composition.
+
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT } from './config.js';
 
 const HARNESS_FILE = path.join(ROOT, 'harness.config.json');
 
-const DEFAULTS = {
-  systemPrompts: { identity: 'auto', operatingInstructions: '', behavioralMode: 'auto', persona: '' },
-  generation: { temperature: null, top_p: null, top_k: null, max_tokens: null, stop_sequences: [], effort: null },
-  thinking: { type: null, budget_tokens: null, display: null },
-  tools: { tool_choice: null, parallel_tool_use: null, allowlist: [] },
-  infrastructure: { stream: null, service_tier: null, user_id: null },
-  aliases: {},
-  headers: {},
-};
+const TEXT_COMPONENTS = [
+  'identity',
+  'operatingInstructions',
+  'safetyPolicy',
+  'toolPolicy',
+  'reasoningPolicy',
+  'outputStyle',
+  'behavioralMode',
+  'persona',
+];
 
-export function loadHarness(file = HARNESS_FILE) {
-  if (!fs.existsSync(file)) return { ...DEFAULTS };
+function blankComponents() {
+  return {
+    identity: '',
+    operatingInstructions: '',
+    persona: '',
+    behavioralMode: '',
+    safetyPolicy: '',
+    toolPolicy: '',
+    reasoningPolicy: '',
+    outputStyle: '',
+    generation: {
+      temperature: null,
+      top_p: null,
+      top_k: null,
+      max_tokens: null,
+      stop_sequences: [],
+      effort: null,
+    },
+    infrastructure: { stream: null, service_tier: null, user_id: null },
+    aliases: {},
+    headers: {},
+  };
+}
+
+function defaultHarness() {
+  return { id: 'default', name: 'Default Harness', components: blankComponents() };
+}
+
+function cleanId(value, fallback = 'harness') {
+  const id = String(value || fallback)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+  if (!id || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(id)) throw new Error('Harness name must contain letters or numbers');
+  return id;
+}
+
+function normalizeComponents(input = {}) {
+  const defaults = blankComponents();
+  const legacyPrompts = input.systemPrompts || {};
+  const source = input.components || input;
+  const normalized = { ...defaults };
+  for (const key of TEXT_COMPONENTS) {
+    const legacy = key === 'identity' || key === 'operatingInstructions' || key === 'persona' || key === 'behavioralMode'
+      ? legacyPrompts[key]
+      : undefined;
+    const value = source[key] ?? legacy;
+    normalized[key] = typeof value === 'string' ? value : '';
+  }
+  normalized.generation = { ...defaults.generation, ...(source.generation || input.generation || {}) };
+  normalized.infrastructure = { ...defaults.infrastructure, ...(source.infrastructure || input.infrastructure || {}) };
+  normalized.aliases = source.aliases && typeof source.aliases === 'object' && !Array.isArray(source.aliases) ? { ...source.aliases } : {};
+  normalized.headers = source.headers && typeof source.headers === 'object' && !Array.isArray(source.headers) ? { ...source.headers } : {};
+  return normalized;
+}
+
+function normalizeHarness(input, fallbackId = 'harness') {
+  const id = cleanId(input?.id, fallbackId);
+  const name = typeof input?.name === 'string' && input.name.trim() ? input.name.trim().slice(0, 120) : id;
+  return { id, name, components: normalizeComponents(input || {}) };
+}
+
+function normalizeLibrary(raw) {
+  if (raw?.schemaVersion === 2 && Array.isArray(raw.harnesses)) {
+    const harnesses = raw.harnesses.map((harness, index) => normalizeHarness(harness, `harness-${index + 1}`));
+    if (!harnesses.some((harness) => harness.id === 'default')) harnesses.unshift(defaultHarness());
+    return { schemaVersion: 2, harnesses };
+  }
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    return {
+      schemaVersion: 2,
+      harnesses: [{ id: 'default', name: 'Default Harness', components: normalizeComponents(raw) }],
+    };
+  }
+  return { schemaVersion: 2, harnesses: [defaultHarness()] };
+}
+
+/** Load a named Harness library, migrating the former singleton shape in memory. */
+export function loadHarnessLibrary(file = HARNESS_FILE) {
+  if (!fs.existsSync(file)) return normalizeLibrary(null);
   try {
-    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-    return { ...DEFAULTS, ...raw };
+    return normalizeLibrary(JSON.parse(fs.readFileSync(file, 'utf8')));
   } catch {
-    return { ...DEFAULTS };
+    return normalizeLibrary(null);
   }
 }
 
-export function saveHarness(config, file = HARNESS_FILE) {
-  fs.writeFileSync(file, JSON.stringify(config, null, 2) + '\n', 'utf8');
+/** Save private Harness configuration atomically. */
+export function saveHarnessLibrary(library, file = HARNESS_FILE) {
+  const normalized = normalizeLibrary(library);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(normalized, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  if (process.platform !== 'win32') fs.chmodSync(temporary, 0o600);
+  fs.renameSync(temporary, file);
+  if (process.platform !== 'win32') fs.chmodSync(file, 0o600);
+  return normalized;
+}
+
+export function createHarness(library, { id, name, components = {} } = {}) {
+  if (!library || !Array.isArray(library.harnesses)) throw new Error('Harness library is invalid');
+  const base = cleanId(id || name, 'harness');
+  let harnessId = base;
+  for (let suffix = 2; library.harnesses.some((harness) => harness.id === harnessId); suffix++) {
+    harnessId = `${base.slice(0, 64 - String(suffix).length - 1)}-${suffix}`;
+  }
+  const harness = normalizeHarness({ id: harnessId, name: name || harnessId, components }, harnessId);
+  library.harnesses.push(harness);
+  return harness;
+}
+
+export function updateHarness(library, harnessId, { name, components } = {}) {
+  const harness = library?.harnesses?.find((candidate) => candidate.id === harnessId);
+  if (!harness) throw new Error(`Unknown Harness: ${harnessId}`);
+  if (name !== undefined) {
+    if (typeof name !== 'string' || !name.trim()) throw new Error('Harness name is required');
+    harness.name = name.trim().slice(0, 120);
+  }
+  if (components !== undefined) harness.components = normalizeComponents({ ...harness.components, ...components });
+  return harness;
+}
+
+export function removeHarness(library, harnessId) {
+  if (harnessId === 'default') throw new Error('Default Harness cannot be deleted');
+  const index = library?.harnesses?.findIndex((candidate) => candidate.id === harnessId) ?? -1;
+  if (index < 0) throw new Error(`Unknown Harness: ${harnessId}`);
+  return library.harnesses.splice(index, 1)[0];
+}
+
+export function harnessById(library, harnessId = 'default') {
+  return library?.harnesses?.find((candidate) => candidate.id === harnessId)
+    || library?.harnesses?.find((candidate) => candidate.id === 'default')
+    || defaultHarness();
 }
 
 export function applyHarnessConfig(body, harness) {
+  const components = normalizeComponents(harness || {});
   const next = { ...body, messages: Array.isArray(body.messages) ? [...body.messages] : body.messages };
 
-  if (harness.aliases?.[next.model]) {
-    next.model = harness.aliases[next.model];
+  if (components.aliases[next.model]) next.model = components.aliases[next.model];
+
+  const generation = components.generation;
+  if (generation.temperature !== null && generation.temperature !== undefined && next.temperature === undefined) next.temperature = generation.temperature;
+  if (generation.top_p !== null && generation.top_p !== undefined && next.top_p === undefined) next.top_p = generation.top_p;
+  if (generation.top_k !== null && generation.top_k !== undefined && next.top_k === undefined) next.top_k = generation.top_k;
+  if (generation.max_tokens !== null && generation.max_tokens !== undefined && next.max_tokens === undefined) next.max_tokens = generation.max_tokens;
+  if (generation.stop_sequences?.length && next.stop === undefined) next.stop = generation.stop_sequences;
+
+  if (components.infrastructure.stream !== null && components.infrastructure.stream !== undefined && next.stream === undefined) {
+    next.stream = components.infrastructure.stream;
   }
 
-  const gen = harness.generation || {};
-  if (gen.temperature !== null && gen.temperature !== undefined && next.temperature === undefined) next.temperature = gen.temperature;
-  if (gen.top_p !== null && gen.top_p !== undefined && next.top_p === undefined) next.top_p = gen.top_p;
-  if (gen.top_k !== null && gen.top_k !== undefined && next.top_k === undefined) next.top_k = gen.top_k;
-  if (gen.max_tokens !== null && gen.max_tokens !== undefined && next.max_tokens === undefined) next.max_tokens = gen.max_tokens;
-  if (gen.stop_sequences?.length && !next.stop) next.stop = gen.stop_sequences;
-
-  if (harness.infrastructure?.stream !== null && harness.infrastructure?.stream !== undefined && next.stream === undefined) {
-    next.stream = harness.infrastructure.stream;
-  }
-
-  const prompts = [harness.systemPrompts?.operatingInstructions, harness.systemPrompts?.persona]
-    .filter((value) => typeof value === 'string' && value.trim())
+  const prompts = TEXT_COMPONENTS
+    .map((key) => components[key])
+    .filter((value) => typeof value === 'string' && value.trim() && value.trim().toLowerCase() !== 'auto')
     .map((value) => value.trim());
   if (prompts.length && Array.isArray(next.messages)) {
     next.messages.unshift({ role: 'system', content: prompts.join('\n\n') });
   }
-
   return next;
 }
 
-export function applyHarness(body) {
-  return applyHarnessConfig(body, loadHarness());
+// Compatibility helpers for callers that still address the Default Harness directly.
+export function loadHarness(file = HARNESS_FILE) {
+  return harnessById(loadHarnessLibrary(file)).components;
+}
+
+export function saveHarness(config, file = HARNESS_FILE) {
+  const library = loadHarnessLibrary(file);
+  const source = config?.components || config || {};
+  const legacy = config?.systemPrompts || {};
+  updateHarness(library, 'default', {
+    components: {
+      ...source,
+      ...Object.fromEntries(
+        ['identity', 'operatingInstructions', 'behavioralMode', 'persona']
+          .filter((key) => legacy[key] !== undefined)
+          .map((key) => [key, legacy[key]]),
+      ),
+    },
+  });
+  saveHarnessLibrary(library, file);
+}
+
+export function applyHarness(body, file = HARNESS_FILE) {
+  return applyHarnessConfig(body, loadHarness(file));
 }
