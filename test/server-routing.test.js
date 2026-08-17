@@ -9,7 +9,7 @@ import { createServer } from '../src/server.js';
 import { QuotaTracker } from '../src/quota.js';
 
 const routingModule = await import('../src/routing.js');
-const { createRoutingRuntime, rotateLocalKey } = routingModule;
+const { authenticateLocalKey, createRoutingRuntime, rotateLocalKey, tokenForLocalKey } = routingModule;
 
 function listen(server) {
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
@@ -74,4 +74,24 @@ test('rotating one local key does not invalidate another', () => {
   const betaAfter = rotateLocalKey(runtime, 'beta');
   assert.equal(runtime.secretStore.get('local-key:alpha'), alphaBefore);
   assert.notEqual(betaAfter, 'beta-token');
+});
+
+test('rotating a migrated default key supersedes its legacy environment value', () => {
+  assert.equal(typeof tokenForLocalKey, 'function', 'local token lookup must exist');
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'subchain-default-rotate-'));
+  const secretStore = createSecretStore({ dataDir });
+  secretStore.set('local-key:default', 'legacy-token');
+  const runtime = createRoutingRuntime({
+    secretStore,
+    env: { SUBCHAIN_ACCESS_KEY: 'legacy-token' },
+    routing: {
+      schemaVersion: 2,
+      chains: [{ id: 'default', name: 'Default', migrated: true, links: [{ provider: 'google', model: 'default-model' }] }],
+      localKeys: [{ id: 'default', name: 'Default', secretRef: 'local-key:default', target: { type: 'chain', id: 'default' } }],
+    },
+  });
+  const rotated = rotateLocalKey(runtime, 'default');
+  assert.equal(tokenForLocalKey(runtime, runtime.routing.localKeys[0]), rotated);
+  assert.equal(authenticateLocalKey(runtime, 'legacy-token'), null);
+  assert.equal(authenticateLocalKey(runtime, rotated)?.id, 'default');
 });

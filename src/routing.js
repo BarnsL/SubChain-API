@@ -174,12 +174,14 @@ export function createRoutingRuntime({ routing, secretStore, env = process.env, 
   };
 }
 
-/** Return a token for a configured local key. Environment values are explicit portable overrides. */
+/** Return a token for a configured local key. Environment values bootstrap only an absent private token. */
 export function tokenForLocalKey(runtime, key) {
+  const stored = runtime.secretStore.get(key.secretRef);
+  if (stored) return stored;
   const override = runtime.env?.[localKeyEnvName(key.id)];
   return typeof override === 'string' && override.trim()
     ? override.trim()
-    : runtime.secretStore.get(key.secretRef);
+    : null;
 }
 
 /** Authenticate an inbound token without leaking which configured key matched. */
