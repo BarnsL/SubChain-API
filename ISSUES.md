@@ -213,6 +213,26 @@ No open release-blocking issues are recorded for this revision.
   After worker restart, live health and admin-state requests completed in about
   0.06 seconds instead of timing out.
 
+### SUB-017: Enroll ChatGPT subscriptions through Codex
+
+- **Status**: DONE
+- **Priority**: P1
+- **Type**: Feature and security
+- **Description**: A missing managed OpenAI Codex account needed a supported,
+  cross-platform sign-in path without treating a ChatGPT subscription as an API
+  key or handling consumer OAuth material in SubChain.
+- **Resolution**: The Providers card starts the documented
+  `chatgptDeviceCode` flow through the official Codex app-server, displays only
+  the official verification URL and one-time code, and refreshes normal Ping
+  data after connection. OAuth storage and refresh stay in Codex. The direct
+  OpenAI API lane remains separately credentialed and billed.
+- **Verification**: Focused managed transport, admin-route, inventory, and
+  browser state tests cover pending, completion, cancellation, expiry, failure,
+  refresh-error recovery, scoped routing, timer cleanup, and focus behavior.
+  Full-suite, syntax, public-audit, and diff checks are recorded with this
+  documentation change. Live enrollment and completion require an
+  owner-authenticated ChatGPT account and were not initiated by this task.
+
 ## How to file an issue
 
 Add the next sequential `SUB-NNN` heading. Include status, priority, type,

@@ -16,6 +16,25 @@ Managed Codex does not use a copied credential. Sign in through Codex, then use
 the provider card's **Ping** action. Managed Antigravity likewise relies on its
 own installed client's sign-in state.
 
+## ChatGPT subscription connection needs attention
+
+On the OpenAI Codex Providers card, choose **Connect ChatGPT subscription**.
+Open only the official verification URL displayed by the card and enter the
+one-time code there. Do not paste that code into a shell, issue, chat, or any
+other site. Codex owns the sign-in, storage, and token refresh.
+
+- **Pending**: Complete the official verification flow, or use **Cancel**.
+- **Expired**, **failed**, or **cancelled**: Start a new connection to receive a
+  new one-time code.
+- **Refresh error**: The ChatGPT login succeeded but Ping could not refresh
+  provider data. Use **Retry Ping**. Do not reconnect unless the card later
+  reports a missing login.
+
+If connection cannot start, confirm the official Codex client is installed and
+can sign in, then retry. A ChatGPT subscription is not an OpenAI API key. Use
+the separate OpenAI API card and its authorized API-key source for API Platform
+billing.
+
 ## Local key returns 401
 
 Copy the intended key again from Local keys. Keys are independent: rotating or

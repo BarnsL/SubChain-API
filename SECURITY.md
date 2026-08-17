@@ -40,6 +40,18 @@ token files. Each completion uses a transient Codex thread in a private empty
 working directory, an allowed read-only permission profile, and no approval for
 additional access. The transient thread is deleted after the response.
 
+OpenAI Codex enrollment is available only through the loopback Providers card.
+Its status route is loopback-only, and its start and cancel requests require
+JSON and reject cross-site Fetch Metadata before any login operation runs. The
+only enrollment fields returned are a sanitized state, an official HTTPS
+verification URL, a one-time code, and expiry when supplied. Never copy the
+code into an issue, log, or third-party page. SubChain never uses undocumented
+consumer endpoints, and never receives or stores ChatGPT tokens or identity.
+
+The direct OpenAI API lane is separate. It uses an API key and API Platform
+billing, while the Codex lane uses a ChatGPT subscription managed by Codex.
+Neither credential type authorizes the other lane.
+
 The Antigravity lane invokes the installed client in its restricted planning
 mode. Provider authentication and refresh remain inside that client. A failed
 authentication or exhausted quota is returned as a sanitized provider error.

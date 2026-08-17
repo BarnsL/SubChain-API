@@ -6,12 +6,18 @@ semantics.
 
 ## Managed Codex lane
 
-### Access
+### Connect
 
-Sign in through Codex using the ChatGPT account intended for Codex. SubChain
-starts the documented local `codex app-server` standard-input transport. Codex
-owns and refreshes its OAuth credentials; SubChain never reads or copies them.
-No undocumented consumer endpoint is used.
+If the OpenAI Codex card reports a missing account, choose **Connect ChatGPT
+subscription**. SubChain starts the documented Codex app-server
+`chatgptDeviceCode` flow. Open the displayed official verification URL and enter
+the displayed one-time code only on that page. Do not paste the code elsewhere.
+
+Codex owns OAuth storage and refresh. SubChain never reads, copies, persists,
+returns, or logs ChatGPT tokens or account identity. It does not use
+undocumented consumer endpoints. A pending connection can be cancelled. An
+expired, failed, or cancelled connection needs a new start. If Ping reports a
+refresh error after connection, retry Ping instead of reconnecting.
 
 SubChain discovers the installed Codex command through a generic application
 location, the executable search path, or an explicit private runtime override.
@@ -34,11 +40,15 @@ profile, the request fails closed.
 
 ### Verify
 
-1. Confirm the Codex client is signed in.
-2. Press **Ping** on the OpenAI Codex card.
+1. Choose **Connect ChatGPT subscription** if the card reports no account.
+2. Complete the official verification flow and wait for the normal Ping refresh.
 3. Confirm plan, models, rate-limit buckets, and a current Ping timestamp.
 4. Assign a dedicated local key to OpenAI Codex or a chain containing it.
-5. Send one minimal completion with `model: auto` or a discovered Codex model.
+5. Use that local key with `model: auto` or a discovered model from its scoped
+   `/v1/models` result, then send one minimal completion.
+
+SubChain authenticates the local key before model listing or request dispatch.
+An application never receives the ChatGPT subscription identity or credential.
 
 The protocol is documented in the
 [Codex app-server reference](https://developers.openai.com/codex/app-server).
@@ -50,6 +60,8 @@ The protocol is documented in the
 Use `SUBCHAIN_OPENAI_API_KEY` as an explicit override or `OPENAI_API_KEY` in the
 service environment. This lane calls the supported OpenAI API and consumes API
 Platform billing and rate limits. It does not consume a ChatGPT subscription.
+Do not copy a ChatGPT token into this lane, and do not expect a ChatGPT
+subscription to authorize API Platform requests.
 
 ### Ping and verify
 

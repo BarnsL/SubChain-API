@@ -76,6 +76,14 @@ API keys remain a separate account because API Platform billing and ChatGPT
 subscription limits are different. Read the standardized provider instructions
 in [docs/provider-access](docs/provider-access/README.md).
 
+To enroll a missing OpenAI Codex account, select **Connect ChatGPT
+subscription** on its Providers card. Open the official verification page shown
+by the card and enter its one-time code there. Codex stores and refreshes the
+sign-in. SubChain receives neither the password, token, nor account identity.
+After completion, the card refreshes its normal Ping data. Assign a local key
+directly to OpenAI Codex, or to a chain containing it, then use `model: auto`
+or a model discovered for that key.
+
 ## Harnesses
 
 A named Harness is the request policy assigned to a local key. It can combine

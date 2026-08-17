@@ -67,6 +67,7 @@ requests before parsing their bodies.
 | Provider request transforms | `src/transforms.js` | request fixture for the affected provider |
 | HTTP model and quota Ping | `src/provider-probes.js` | bounded timeout, sanitized result tests |
 | Managed Codex and Antigravity transports | `src/managed-transports.js`, `src/jsonl-rpc.js` | fake-client tests plus approved live probe |
+| ChatGPT subscription enrollment | `src/managed-transports.js`, `src/server.js`, `src/admin.js`, `src/webui/app.js`, `src/webui/subscription-login-state.js`, `src/webui/subscription-card-dom.js`, `src/webui/app.css` | `test/managed-transports.test.js`, `test/admin-api.test.js`, `test/admin-routing.test.js`, `test/subscription-login-state.test.js` |
 | Account labels, health, models, quotas, observed usage | `src/provider-status.js`, `src/quota.js` | allowlist tests, atomic private persistence |
 | Chain dispatch and usage accounting | `src/chain.js` | fallback, cooldown, quota, response-shape tests |
 | Local keys, scopes, chain limits | `src/routing.js`, `src/admin.js` | routing and admin tests, no key rotation on metadata edit |
@@ -92,6 +93,24 @@ Managed Codex uses the documented local app-server and the Codex-owned ChatGPT
 sign-in. It does not need a copied OAuth token. Managed Antigravity keeps its
 authentication inside that client and reports separate Google-model and
 Claude/GPT quota families when the client exposes them.
+
+When the OpenAI Codex card reports no ChatGPT login, choose **Connect ChatGPT
+subscription**. Open the official verification URL shown by the card and enter
+the one-time code on that page. Codex owns OAuth storage and refresh. SubChain
+keeps only an in-memory, sanitized enrollment state and never copies tokens or
+identity. This is not the direct OpenAI API lane: API keys, billing, rate
+limits, and model availability remain separate.
+
+The enrollment status endpoint is loopback-only. Start and cancel requests are
+JSON-only and reject cross-site Fetch Metadata. After connection, Ping refreshes
+models and account health. Route an application with a scoped local key that
+targets `openai-codex` directly, or a chain containing it. Use `model: auto` or
+a model returned by that key's scoped `/v1/models` result.
+
+For a pending enrollment, finish at the official page or cancel it. For an
+expired, failed, or cancelled enrollment, start a new connection. For a
+refresh-error, the ChatGPT sign-in remains connected: retry **Ping** rather
+than enrolling again.
 
 ## Release checklist
 
