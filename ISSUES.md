@@ -198,6 +198,21 @@ No open release-blocking issues are recorded for this revision.
   and POST bodies that are not `application/json`. Loopback and scoped API
   boundaries remain independently enforced by regression tests.
 
+### SUB-016: Prevent platform credential lookup from stalling the dashboard
+
+- **Status**: DONE
+- **Priority**: P1
+- **Type**: Performance
+- **Description**: A platform environment lookup was launched separately for
+  every missing credential alias during each provider inventory request. On an
+  affected machine, the live dashboard and health endpoint could stall while
+  those child processes completed.
+- **Resolution**: The platform environment is read once with a bounded command,
+  parsed into a process-local cache, and reused for every provider. A focused
+  test proves multiple credential lookups execute the platform reader once.
+  After worker restart, live health and admin-state requests completed in about
+  0.06 seconds instead of timing out.
+
 ## How to file an issue
 
 Add the next sequential `SUB-NNN` heading. Include status, priority, type,

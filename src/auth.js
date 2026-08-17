@@ -36,15 +36,27 @@ function readEnvironmentFile(filePath) {
   }
 }
 
-function readWindowsEnvironment(name) {
-  try {
-    const output = execFileSync('reg', ['query', 'HKCU\\Environment', '/v', name], {
-      windowsHide: true, encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    const match = output.match(/REG_(?:SZ|EXPAND_SZ)\s+(.+)/);
-    return match ? match[1].trim() : null;
-  } catch { return null; }
+export function createWindowsEnvironmentReader(execFile = execFileSync) {
+  let loaded = false;
+  const values = new Map();
+  return (name) => {
+    if (!loaded) {
+      loaded = true;
+      try {
+        const output = execFile('reg', ['query', 'HKCU\\Environment'], {
+          windowsHide: true, encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'],
+        });
+        for (const line of output.split(/\r?\n/)) {
+          const match = line.match(/^\s*(\S+)\s+REG_(?:SZ|EXPAND_SZ)\s+(.*)$/i);
+          if (match) values.set(match[1].toUpperCase(), match[2].trim());
+        }
+      } catch {}
+    }
+    return values.get(String(name).toUpperCase()) || null;
+  };
 }
+
+const readWindowsEnvironment = createWindowsEnvironmentReader();
 
 function createContext(options = {}) {
   const env = options.env ?? process.env;

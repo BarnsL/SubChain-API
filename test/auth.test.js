@@ -3,7 +3,23 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { resolveCredential } from '../src/auth.js';
+import { createWindowsEnvironmentReader, resolveCredential } from '../src/auth.js';
+
+test('Windows environment credential discovery reads the registry only once per process', () => {
+  let calls = 0;
+  const reader = createWindowsEnvironmentReader(() => {
+    calls += 1;
+    return [
+      '    GOOGLE_API_KEY    REG_SZ    google-test-value',
+      '    ANTHROPIC_TOKEN    REG_EXPAND_SZ    anthropic test value',
+    ].join('\r\n');
+  });
+
+  assert.equal(reader('GOOGLE_API_KEY'), 'google-test-value');
+  assert.equal(reader('anthropic_token'), 'anthropic test value');
+  assert.equal(reader('MISSING'), null);
+  assert.equal(calls, 1);
+});
 
 test('an explicit SubChain override wins and reports no private pathname', () => {
   const credential = resolveCredential('sakana', {
