@@ -66,7 +66,7 @@ test('a local key lists only its assigned chain models and rejects another chain
   }
 });
 
-test('a direct provider key uses its discovered catalog instead of stale chain links', async () => {
+test('a direct provider key normalizes its discovered catalog instead of stale chain links', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'subchain-direct-provider-'));
   const secretStore = createSecretStore({ dataDir });
   secretStore.set('local-key:codex', 'codex-token');
@@ -87,13 +87,19 @@ test('a direct provider key uses its discovered catalog instead of stale chain l
   const providerStatusStore = createProviderStatusStore({ file: path.join(dataDir, 'provider-status.json') });
   providerStatusStore.recordPing('openai-codex', {
     health: 'ready',
-    models: [{ id: 'gpt-live-first' }, { id: 'gpt-live-explicit' }],
+    models: [
+      { id: '  gpt-live-first  ' }, { id: 'gpt-live-first' }, { id: '' }, { id: 1 },
+      { id: ' gpt-live-explicit ' }, { id: 'gpt-live-explicit' }, {},
+    ],
   });
   const requests = [];
   const managedTransports = {
     has: (transport) => transport === 'codex-app-server',
     async request(transport, link, body) {
       requests.push({ transport, model: link.model, body });
+      if (link.model === 'gpt-live-first') {
+        return new Response(JSON.stringify({ error: { message: 'try the next model' } }), { status: 500 });
+      }
       return new Response(JSON.stringify({
         id: 'chatcmpl-local', object: 'chat.completion', model: link.model,
         choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
@@ -114,7 +120,7 @@ test('a direct provider key uses its discovered catalog instead of stale chain l
       body: JSON.stringify({ model: 'auto', messages: [{ role: 'user', content: 'hello' }] }),
     });
     assert.equal(automatic.status, 200);
-    assert.equal(automatic.headers.get('x-subchain-model'), 'gpt-live-first');
+    assert.equal(automatic.headers.get('x-subchain-model'), 'gpt-live-explicit');
 
     const explicit = await fetch(`${endpoint}/v1/chat/completions`, {
       method: 'POST', headers,
@@ -122,7 +128,9 @@ test('a direct provider key uses its discovered catalog instead of stale chain l
     });
     assert.equal(explicit.status, 200);
     assert.equal(explicit.headers.get('x-subchain-model'), 'gpt-live-explicit');
-    assert.deepEqual(requests.map((request) => request.model), ['gpt-live-first', 'gpt-live-explicit']);
+    assert.deepEqual(requests.map((request) => request.model), [
+      'gpt-live-first', 'gpt-live-explicit', 'gpt-live-explicit',
+    ]);
 
     const inaccessible = await fetch(`${endpoint}/v1/chat/completions`, {
       method: 'POST', headers,
@@ -130,6 +138,58 @@ test('a direct provider key uses its discovered catalog instead of stale chain l
     });
     assert.equal(inaccessible.status, 502);
     assert.match((await inaccessible.json()).error.message, /No chain link serves model "google-only"/);
+  } finally {
+    await close(server);
+  }
+});
+
+test('a direct provider key falls back when its provider catalogue has no valid models', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'subchain-direct-fallback-'));
+  const secretStore = createSecretStore({ dataDir });
+  secretStore.set('local-key:codex', 'codex-token');
+  const runtime = createRoutingRuntime({
+    secretStore,
+    routing: {
+      schemaVersion: 3,
+      chains: [{ id: 'default', name: 'Default', links: [{ provider: 'openai-codex', model: 'gpt-stale-chain' }] }],
+      localKeys: [{
+        id: 'codex', name: 'Codex key', secretRef: 'local-key:codex',
+        target: { type: 'provider', id: 'openai-codex' }, harnessId: 'default',
+      }],
+    },
+  });
+  const providerStatusStore = createProviderStatusStore({ file: path.join(dataDir, 'provider-status.json') });
+  providerStatusStore.recordPing('openai-codex', { health: 'ready', models: [{ id: '' }, { id: 1 }, {}] });
+  const requests = [];
+  const managedTransports = {
+    has: (transport) => transport === 'codex-app-server',
+    async request(transport, link) {
+      requests.push({ transport, model: link.model });
+      return new Response(JSON.stringify({
+        id: 'chatcmpl-local', object: 'chat.completion', model: link.model,
+        choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+  };
+  const server = createServer(runtime, new QuotaTracker(), { ui: false, providerStatusStore, managedTransports });
+  const port = await listen(server);
+  const endpoint = `http://127.0.0.1:${port}`;
+  const headers = { Authorization: 'Bearer codex-token', 'Content-Type': 'application/json' };
+  try {
+    const models = await fetch(`${endpoint}/v1/models`, { headers });
+    assert.equal(models.status, 200);
+    assert.deepEqual((await models.json()).data.map((model) => model.id), [
+      'auto', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4',
+      'gpt-5.4-mini', 'gpt-5.3-codex-spark',
+    ]);
+
+    const automatic = await fetch(`${endpoint}/v1/chat/completions`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ model: 'auto', messages: [{ role: 'user', content: 'hello' }] }),
+    });
+    assert.equal(automatic.status, 200);
+    assert.equal(automatic.headers.get('x-subchain-model'), 'gpt-5.6-sol');
+    assert.deepEqual(requests.map((request) => request.model), ['gpt-5.6-sol']);
   } finally {
     await close(server);
   }

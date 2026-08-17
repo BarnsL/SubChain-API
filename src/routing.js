@@ -147,15 +147,25 @@ export function scopeForLocalKey(routing, key, providerModels = null) {
     return { kind: 'chain', chain, links: materializeLinks(chain.links) };
   }
   const provider = providerDef(key.target.id);
-  const models = Array.isArray(providerModels)
-    ? providerModels.map((model) => typeof model === 'string' ? model : model?.id).filter(Boolean)
-    : [];
+  const models = normalizeProviderModels(providerModels);
   const catalog = models.length ? models : provider.fallbackModels;
   return {
     kind: 'provider',
     provider: key.target.id,
     links: materializeLinks(catalog.map((model) => ({ provider: key.target.id, model }))),
   };
+}
+
+function normalizeProviderModels(providerModels) {
+  if (!Array.isArray(providerModels)) return [];
+  const seen = new Set();
+  return providerModels.flatMap((model) => {
+    const value = typeof model === 'string' ? model : model?.id;
+    const id = typeof value === 'string' ? value.trim() : '';
+    if (!id || seen.has(id)) return [];
+    seen.add(id);
+    return [id];
+  });
 }
 
 function materializeLinks(links) {
