@@ -60,6 +60,20 @@ export function superviseWorker({
   };
 }
 
+/** Dispose worker-owned resources before ending the HTTP process. */
+export function installWorkerShutdown({ processTarget = process, server, managedTransports }) {
+  let stopping = false;
+  const shutdown = () => {
+    if (stopping) return;
+    stopping = true;
+    managedTransports.dispose();
+    server.close(() => processTarget.exit(0));
+  };
+  processTarget.once('SIGINT', shutdown);
+  processTarget.once('SIGTERM', shutdown);
+  return shutdown;
+}
+
 /** Check whether the selected local endpoint already has a listener. */
 export function isPortListening({ host, port, timeoutMs = 500 }) {
   const probeHost = host === '0.0.0.0' ? '127.0.0.1' : host;

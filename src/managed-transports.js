@@ -318,43 +318,55 @@ function deviceCodeInstructions(result) {
       status: 'pending',
       verificationUrl: verificationUrl.toString(),
       userCode,
-      ...(Number.isFinite(result.expiresAt) && result.expiresAt > 0 ? { expiresAt: result.expiresAt } : {}),
     }),
   };
 }
+
+const CHATGPT_LOGIN_TIMEOUT_MS = 15 * 60_000;
 
 export function createManagedTransports({
   codexConnect = defaultCodexConnect,
   commandRunner = runCommand,
   dataDir = resolveDataDir(),
   timeoutMs = 120_000,
-  now = Date.now,
+  loginTimeoutMs = CHATGPT_LOGIN_TIMEOUT_MS,
+  setTimeoutImpl = setTimeout,
+  clearTimeoutImpl = clearTimeout,
 } = {}) {
   const codexOptions = { cwd: privateWorkspace('codex', dataDir), timeoutMs };
   const antigravityCwd = privateWorkspace('antigravity', dataDir);
   const command = process.env.SUBCHAIN_ANTIGRAVITY_COMMAND || 'agy';
+  const loginWatchdogMs = Math.max(1, Math.min(Number(loginTimeoutMs) || CHATGPT_LOGIN_TIMEOUT_MS, CHATGPT_LOGIN_TIMEOUT_MS));
   let codexLogin = { snapshot: loginSnapshot() };
   let startingCodexLogin = null;
+  let startingCodexRpc = null;
+  let disposed = false;
 
   const finishCodexLogin = (snapshot) => {
-    if (codexLogin.timer) clearTimeout(codexLogin.timer);
-    codexLogin.unsubscribe?.();
-    codexLogin.rpc?.close?.();
+    const active = codexLogin;
     codexLogin = { snapshot: loginSnapshot(snapshot) };
+    if (active.timer) clearTimeoutImpl(active.timer);
+    active.unsubscribe?.();
+    active.unsubscribeClose?.();
+    active.rpc?.close?.();
     return loginSnapshot(codexLogin.snapshot);
   };
 
   const codexLoginStatus = () => loginSnapshot(codexLogin.snapshot);
 
   const startCodexLogin = async () => {
+    if (disposed) throw Object.assign(new Error('Managed provider client is unavailable'), { statusCode: 409 });
     if (codexLogin.snapshot.status === 'pending') return codexLoginStatus();
     if (startingCodexLogin) return startingCodexLogin;
     startingCodexLogin = (async () => {
       let rpc;
       try {
         rpc = await codexConnect(codexOptions);
+        startingCodexRpc = rpc;
+        if (disposed) throw new Error('Managed provider client is unavailable');
         const account = await rpc.request('account/read', { refreshToken: false });
         if (account?.account?.type === 'chatgpt') {
+          startingCodexRpc = null;
           rpc.close?.();
           codexLogin = { snapshot: loginSnapshot({ status: 'ready' }) };
           return codexLoginStatus();
@@ -372,29 +384,34 @@ export function createManagedTransports({
             ? { status: 'ready' }
             : { status: 'failed', message: 'ChatGPT sign-in did not complete' });
         }) || (() => {});
+        const unsubscribeClose = rpc.onClose?.((error) => {
+          if (!error || codexLogin.rpc !== rpc) return;
+          finishCodexLogin({ status: 'failed', message: 'ChatGPT sign-in process stopped' });
+        }) || (() => {});
         const started = await rpc.request('account/login/start', { type: 'chatgptDeviceCode' });
         const instructions = deviceCodeInstructions(started);
         loginId = instructions.loginId;
-        codexLogin = { ...instructions, rpc, unsubscribe };
+        startingCodexRpc = null;
+        codexLogin = { ...instructions, rpc, unsubscribe, unsubscribeClose };
         const completion = completedBeforeLoginId.find((event) => event?.loginId === loginId);
         if (completion) {
           return finishCodexLogin(completion.success
             ? { status: 'ready' }
             : { status: 'failed', message: 'ChatGPT sign-in did not complete' });
         }
-        const expiresIn = instructions.snapshot.expiresAt - now();
-        if (Number.isFinite(expiresIn) && expiresIn <= 0) return finishCodexLogin({ status: 'expired' });
-        if (Number.isFinite(expiresIn)) {
-          const timer = setTimeout(() => finishCodexLogin({ status: 'expired' }), expiresIn);
-          timer.unref?.();
-          codexLogin.timer = timer;
-        }
+        const timer = setTimeoutImpl(() => {
+          if (codexLogin.rpc === rpc && codexLogin.loginId === loginId) finishCodexLogin({ status: 'expired' });
+        }, loginWatchdogMs);
+        timer.unref?.();
+        codexLogin.timer = timer;
         return codexLoginStatus();
       } catch (error) {
-        rpc?.close?.();
-        codexLogin = { snapshot: loginSnapshot({ status: 'failed', message: 'Could not start ChatGPT sign-in' }) };
+        if (codexLogin.rpc === rpc) finishCodexLogin({ status: 'failed', message: 'Could not start ChatGPT sign-in' });
+        else rpc?.close?.();
+        if (!disposed) codexLogin = { snapshot: loginSnapshot({ status: 'failed', message: 'Could not start ChatGPT sign-in' }) };
         throw new Error('Could not start ChatGPT sign-in');
       } finally {
+        if (startingCodexRpc === rpc) startingCodexRpc = null;
         startingCodexLogin = null;
       }
     })();
@@ -409,6 +426,15 @@ export function createManagedTransports({
       return finishCodexLogin({ status: 'failed', message: 'Could not cancel ChatGPT sign-in' });
     }
     return finishCodexLogin({ status: 'cancelled' });
+  };
+
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    const startingRpc = startingCodexRpc;
+    startingCodexRpc = null;
+    if (codexLogin.snapshot.status === 'pending') finishCodexLogin({ status: 'cancelled' });
+    startingRpc?.close?.();
   };
 
   const handlers = {
@@ -474,6 +500,7 @@ export function createManagedTransports({
       if (transport !== 'codex-app-server') throw Object.assign(new Error('Managed provider client is unavailable'), { statusCode: 409 });
       return cancelCodexLogin();
     },
+    dispose,
     probes: {
       'codex-app-server': () => handlers['codex-app-server'].ping(),
       'antigravity-cli': () => handlers['antigravity-cli'].ping(),

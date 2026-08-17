@@ -14,7 +14,9 @@ export class JsonlRpcClient {
     this.nextId = 1;
     this.pending = new Map();
     this.listeners = new Map();
+    this.closeListeners = new Set();
     this.closed = false;
+    this.closeError = null;
     this.stderr = '';
 
     child.stderr?.on('data', (chunk) => {
@@ -49,14 +51,18 @@ export class JsonlRpcClient {
     }
   }
 
-  #failAll(error) {
+  #failAll(error, closeError = error) {
     if (this.closed) return;
     this.closed = true;
+    this.closeError = closeError;
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
       pending.reject(error);
     }
     this.pending.clear();
+    const listeners = [...this.closeListeners];
+    this.closeListeners.clear();
+    for (const listener of listeners) listener(closeError);
   }
 
   request(method, params, timeoutMs = this.timeoutMs) {
@@ -87,6 +93,15 @@ export class JsonlRpcClient {
     return () => listeners.delete(listener);
   }
 
+  onClose(listener) {
+    if (this.closed) {
+      listener(this.closeError);
+      return () => {};
+    }
+    this.closeListeners.add(listener);
+    return () => this.closeListeners.delete(listener);
+  }
+
   waitFor(method, predicate = () => true, timeoutMs = this.timeoutMs) {
     return new Promise((resolve, reject) => {
       const unsubscribe = this.subscribe(method, (params) => {
@@ -109,7 +124,7 @@ export class JsonlRpcClient {
 
   close() {
     if (this.closed) return;
-    this.closed = true;
+    this.#failAll(new Error('managed provider connection closed'), null);
     this.child.stdin?.end();
     this.child.kill?.();
   }

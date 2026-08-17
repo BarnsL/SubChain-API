@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { loadChain, loadDotEnv, chainStatus, ROOT } from '../src/config.js';
 import { createServer } from '../src/server.js';
-import { isPortListening, superviseWorker } from '../src/supervisor.js';
+import { installWorkerShutdown, isPortListening, superviseWorker } from '../src/supervisor.js';
 import { QuotaTracker } from '../src/quota.js';
 import { IS_SEA } from '../src/runtime.js';
 import { createSecretStore } from '../src/storage.js';
@@ -106,14 +106,16 @@ function startWorker() {
     managedProbes: managedTransports.probes,
   });
 
-  createServer(runtime, quota, {
+  const server = createServer(runtime, quota, {
     verbose: has('--verbose'),
     ui,
     providerStatusStore,
     providerProbeService,
     managedTransports,
     managedProviderAvailable: (providerId) => managedTransports.has(providerDef(providerId).transport),
-  }).listen(port, host, () => {
+  });
+  installWorkerShutdown({ server, managedTransports });
+  server.listen(port, host, () => {
     console.log(`subchain     http://${host}:${port}/v1`);
     if (ui) console.log(`dashboard    http://${host}:${port}/`);
     console.log(`chain        ${configured.length}/${status.length} links configured (${chainFile})`);
