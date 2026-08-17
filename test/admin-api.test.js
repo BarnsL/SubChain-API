@@ -74,6 +74,54 @@ test('admin routes are limited to loopback peers', () => {
   assert.equal(isLoopbackAddress('192.168.1.20'), false);
 });
 
+test('provider account routes rename and manually Ping exactly one subscription', async () => {
+  const value = runtime();
+  const account = {
+    providerId: 'google',
+    name: 'Gemini Account 1',
+    health: 'ready',
+    models: [{ id: 'gemini-example', label: 'Gemini Example' }],
+    quotas: [{ id: 'provider', label: 'Provider quota', status: 'unknown' }],
+    observedUsage: { requests: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+  };
+  const providerStatusStore = {
+    get: (id) => id === 'google' ? account : null,
+    rename: (id, name) => Object.assign(account, { providerId: id, name }),
+  };
+  let pingCount = 0;
+  const providerProbeService = {
+    isPinging: () => false,
+    ping: async (id) => {
+      pingCount += 1;
+      assert.equal(id, 'google');
+      return { health: 'ready', models: account.models, quotas: account.quotas };
+    },
+  };
+  const server = createServer(value, new QuotaTracker(), { ui: true, providerStatusStore, providerProbeService });
+  const port = await listen(server);
+  try {
+    const renamed = await fetch(`http://127.0.0.1:${port}/admin/providers/google`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Primary Gemini' }),
+    });
+    assert.equal(renamed.status, 200);
+    assert.equal((await renamed.json()).account.name, 'Primary Gemini');
+
+    const pinged = await fetch(`http://127.0.0.1:${port}/admin/providers/google/ping`, { method: 'POST' });
+    assert.equal(pinged.status, 200);
+    assert.equal((await pinged.json()).account.health, 'ready');
+    assert.equal(pingCount, 1);
+
+    const state = await (await fetch(`http://127.0.0.1:${port}/admin/state`)).json();
+    const provider = state.providers.find((item) => item.id === 'google');
+    assert.equal(provider.name, 'Primary Gemini');
+    assert.deepEqual(provider.models.map((model) => model.id), ['gemini-example']);
+  } finally {
+    await close(server);
+  }
+});
+
 test('the loopback admin API lists and reads only imported preset entries', async () => {
   const value = runtime();
   const harnessFile = path.join(value.presetDataDir, 'harness.json');

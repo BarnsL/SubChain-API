@@ -24,6 +24,7 @@ import {
 } from './admin.js';
 import { shortcutStatus, createShortcut, dismissShortcut } from './shortcut.js';
 import { authenticateLocalKey, rotateLocalKey, scopeForLocalKey, tokenForLocalKey } from './routing.js';
+import { usageFromPayload } from './quota.js';
 
 const WEBUI_DIR = IS_SEA
   ? path.join(EXE_DIR, 'webui')
@@ -103,9 +104,21 @@ function serveStatic(res, pathname) {
   return true;
 }
 
-export function createServer(runtime, quota, { verbose = false, ui = true, harnessFile } = {}) {
+export function createServer(runtime, quota, {
+  verbose = false,
+  ui = true,
+  harnessFile,
+  providerStatusStore = null,
+  providerProbeService = null,
+  managedProviderAvailable = () => false,
+} = {}) {
   const cooldowns = new Cooldowns(runtime.settings.cooldownMs);
   const stats = { served: 0, failed: 0, startedAt: Date.now() };
+  const inventory = () => routingInventory(runtime, quota, {
+    statusStore: providerStatusStore,
+    providerProbeService,
+    managedProviderAvailable,
+  });
 
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
@@ -121,7 +134,7 @@ export function createServer(runtime, quota, { verbose = false, ui = true, harne
     }
 
     if (url.pathname === '/healthz' || url.pathname === '/v1/status') {
-      const state = routingInventory(runtime, quota);
+      const state = inventory();
       return json(res, 200, {
         ok: state.providers.some((provider) => provider.hasCredential),
         links: state.chains.flatMap((chain) => chain.links.map((link) => ({ ...link, chainId: chain.id }))),
@@ -140,7 +153,7 @@ export function createServer(runtime, quota, { verbose = false, ui = true, harne
         }
         if (url.pathname === '/admin/state' && req.method === 'GET') {
           return json(res, 200, {
-            ...routingInventory(runtime, quota),
+            ...inventory(),
             cooling: cooldowns.snapshot(),
             quota: quota.snapshot(),
             harness: loadHarness(harnessFile),
@@ -154,9 +167,24 @@ export function createServer(runtime, quota, { verbose = false, ui = true, harne
         if (url.pathname === '/admin/access-key/rotate' && req.method === 'POST') {
           return json(res, 200, { key: rotateLocalKey(runtime, 'default') });
         }
+        const providerPingMatch = /^\/admin\/providers\/([a-z0-9-]+)\/ping$/.exec(url.pathname);
+        if (providerPingMatch && req.method === 'POST') {
+          if (!providerProbeService) return fail(res, 503, 'Provider Ping service is unavailable');
+          const result = await providerProbeService.ping(providerPingMatch[1]);
+          return json(res, 200, {
+            ok: true,
+            account: providerStatusStore?.get(providerPingMatch[1]) || result,
+          });
+        }
+        const providerMatch = /^\/admin\/providers\/([a-z0-9-]+)$/.exec(url.pathname);
+        if (providerMatch && req.method === 'POST') {
+          if (!providerStatusStore) return fail(res, 503, 'Provider account store is unavailable');
+          const { name } = await readJson(req);
+          return json(res, 200, { account: providerStatusStore.rename(providerMatch[1], name) });
+        }
         if (url.pathname === '/admin/local-keys' && req.method === 'POST') {
-          const { id, name, target } = await readJson(req);
-          const created = addLocalKey(runtime, { id, name, target });
+          const { id, name, target, harnessId } = await readJson(req);
+          const created = addLocalKey(runtime, { id, name, target, harnessId });
           const { secretRef, ...localKey } = created.key;
           return json(res, 201, { localKey, key: created.token });
         }
@@ -364,6 +392,11 @@ export function createServer(runtime, quota, { verbose = false, ui = true, harne
 
         const rawPayload = await response.text();
         const payload = link.transform ? transformResponse(rawPayload, link) : rawPayload;
+        const usage = usageFromPayload(payload);
+        if (usage) {
+          quota.recordUsage(provider, usage);
+          providerStatusStore?.recordUsage(provider, usage);
+        }
         res.writeHead(200, {
           ...served,
           'Content-Type': 'application/json',

@@ -120,7 +120,7 @@ function slotCredential(context, providerId, type) {
 }
 
 const resolverTypes = {
-  anthropic: 'bearer', 'openai-codex': 'api-key', kimi: 'api-key', google: 'api-key', zhipu: 'api-key', sakana: 'api-key',
+  anthropic: 'bearer', 'openai-api': 'api-key', kimi: 'api-key', google: 'api-key', zhipu: 'api-key', sakana: 'api-key',
 };
 
 const resolvers = {
@@ -135,7 +135,7 @@ const resolvers = {
     ], 'bearer');
   },
 
-  'openai-codex'(context) {
+  'openai-api'(context) {
     return firstCredential([
       [context.env.SUBCHAIN_OPENAI_API_KEY || context.env.SUBCHAIN_OPENAI_CODEX_TOKEN, 'override'],
       ...environmentCandidates(context, ['OPENAI_API_KEY']),

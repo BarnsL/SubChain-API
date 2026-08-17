@@ -79,3 +79,19 @@ test('numbered provider slots require their own explicit credential instead of d
     token: 'slot-sakana-key', type: 'api-key', source: 'override',
   });
 });
+
+test('OpenAI API keys and the managed Codex subscription use separate provider lanes', () => {
+  const api = resolveCredential('openai-api', {
+    env: { OPENAI_API_KEY: '<redacted>' },
+    platform: 'linux',
+    home: '/tmp/empty',
+  });
+  const codex = resolveCredential('openai-codex', {
+    env: { OPENAI_API_KEY: '<redacted>' },
+    platform: 'linux',
+    home: '/tmp/empty',
+  });
+  assert.equal(api?.source, 'environment');
+  assert.equal(api?.type, 'api-key');
+  assert.equal(codex, null);
+});

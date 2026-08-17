@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { FAMILIES, providerDef } from './providers.js';
+import { FAMILIES, familyMembers, providerDef } from './providers.js';
 import { ROOT } from './config.js';
 import { resolveCredential } from './auth.js';
 import {
@@ -69,34 +69,77 @@ function persistRouting(runtime) {
 }
 
 /** Return secret-free dashboard data for the routing runtime. */
-export function routingInventory(runtime, quota) {
+export function routingInventory(runtime, quota, {
+  statusStore = null,
+  providerProbeService = null,
+  managedProviderAvailable = () => false,
+  credentialResolver = resolveCredential,
+} = {}) {
   const chains = runtime.routing.chains.map((chain) => ({
     ...chain,
     links: chain.links.map((link, index) => ({ ...link, index })),
   }));
-  const providers = FAMILIES.map((family) => {
-    const def = providerDef(family);
-    const credential = resolveCredential(family);
+  const linkedProviderIds = new Set(chains.flatMap((chain) => chain.links.map((link) => link.provider)));
+  const storedProviderIds = new Set(statusStore?.list?.().map((account) => account.providerId) || []);
+  const explicitSlotIds = new Set();
+  for (const family of FAMILIES) {
+    for (const providerId of familyMembers(family).slice(1)) {
+      const def = providerDef(providerId);
+      if (def.keyEnv.some((name) => typeof runtime.env?.[name] === 'string' && runtime.env[name].trim())) explicitSlotIds.add(providerId);
+    }
+  }
+  const providerIds = [...FAMILIES, ...linkedProviderIds, ...storedProviderIds, ...explicitSlotIds];
+  const providers = [...new Set(providerIds)].map((providerId) => {
+    const def = providerDef(providerId);
+    const credential = def.transport === 'http' ? credentialResolver(providerId) : null;
+    const status = statusStore?.get(providerId) || null;
+    const managedReady = def.transport !== 'http' && Boolean(managedProviderAvailable(providerId));
+    const hasCredential = Boolean(credential) || managedReady || status?.health === 'ready';
+    const trackedQuota = quota?.get(providerId) || null;
+    const storedQuotas = Array.isArray(status?.quotas) ? status.quotas : [];
+    const statusQuota = storedQuotas.length ? {
+      providerId,
+      quotas: storedQuotas,
+      usagePercent: storedQuotas.reduce((maximum, bucket) => Math.max(maximum, Number(bucket.usedPercent) || 0), 0),
+      observedUsage: status?.observedUsage || null,
+      lastChecked: status?.lastPingAt || null,
+      isExhausted: storedQuotas.some((bucket) => bucket.status === 'exhausted'),
+    } : null;
     return {
-      id: family,
-      family,
-      label: def.label,
+      id: providerId,
+      family: def.family,
+      name: status?.name || def.label,
+      label: status?.name || def.label,
       baseUrl: def.baseUrl,
       authType: def.authType,
+      transport: def.transport,
       transform: def.transform,
       contextWindow: def.contextWindow,
       subscriptionUrl: def.subscriptionUrl,
       jurisdiction: def.jurisdiction,
-      hasCredential: Boolean(credential),
-      credentialSource: credential?.source || null,
-      quota: quota?.get(family) || null,
-      linkCount: chains.reduce((count, chain) => count + chain.links.filter((link) => link.provider.replace(/\d+$/, '') === family).length, 0),
+      plan: status?.plan || null,
+      health: status?.health || (hasCredential ? 'unknown' : 'missing'),
+      statusMessage: status?.message || null,
+      hasCredential,
+      credentialSource: credential?.source || (managedReady ? 'provider-application' : null),
+      models: status?.models?.length
+        ? status.models
+        : def.fallbackModels.map((id) => ({ id, label: id, inputModalities: [], capabilities: {}, quotaFamily: null })),
+      quota: trackedQuota || statusQuota,
+      quotas: trackedQuota?.quotas || storedQuotas,
+      usage: status?.usage || {},
+      observedUsage: status?.observedUsage || trackedQuota?.observedUsage || null,
+      lastPingAt: status?.lastPingAt || null,
+      lastSuccessAt: status?.lastSuccessAt || null,
+      isPinging: providerProbeService?.isPinging?.(providerId) || false,
+      linkCount: chains.reduce((count, chain) => count + chain.links.filter((link) => link.provider === providerId).length, 0),
     };
   });
   const localKeys = runtime.routing.localKeys.map((key) => ({
     id: key.id,
     name: key.name,
     target: key.target,
+    harnessId: key.harnessId,
     hasToken: Boolean(tokenForLocalKey(runtime, key)),
   }));
   const links = chains.flatMap((chain) => chain.links);

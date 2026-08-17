@@ -10,6 +10,9 @@ import { QuotaTracker } from '../src/quota.js';
 import { IS_SEA } from '../src/runtime.js';
 import { createSecretStore } from '../src/storage.js';
 import { createRoutingRuntime, ensureLocalKey, loadRouting } from '../src/routing.js';
+import { createProviderStatusStore } from '../src/provider-status.js';
+import { createProviderProbeService } from '../src/provider-probes.js';
+import { routingInventory } from '../src/admin.js';
 
 const argv = IS_SEA ? process.argv.slice(1) : process.argv.slice(2);
 const flag = (name, fallback) => {
@@ -94,8 +97,15 @@ function startWorker() {
   const runtime = createRoutingRuntime({ routing, secretStore, settings: chain.settings, routingFile });
   const accessKey = ensureLocalKey(runtime);
   const quota = new QuotaTracker();
+  const providerStatusStore = createProviderStatusStore();
+  const providerProbeService = createProviderProbeService({ statusStore: providerStatusStore });
 
-  createServer(runtime, quota, { verbose: has('--verbose'), ui }).listen(port, host, () => {
+  createServer(runtime, quota, {
+    verbose: has('--verbose'),
+    ui,
+    providerStatusStore,
+    providerProbeService,
+  }).listen(port, host, () => {
     console.log(`subchain     http://${host}:${port}/v1`);
     if (ui) console.log(`dashboard    http://${host}:${port}/`);
     console.log(`chain        ${configured.length}/${status.length} links configured (${chainFile})`);
@@ -107,6 +117,13 @@ function startWorker() {
     } else if (accessKey) {
       console.log(ui ? 'access key   set (reveal it in the dashboard)' : 'access key   set');
     }
+
+    setImmediate(() => {
+      const accounts = routingInventory(runtime, quota, { statusStore: providerStatusStore }).providers;
+      for (const account of accounts.filter((candidate) => candidate.hasCredential && !candidate.lastPingAt)) {
+        providerProbeService.ping(account.id).catch(() => {});
+      }
+    });
   });
 }
 

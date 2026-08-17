@@ -7,7 +7,7 @@ import { createSecretStore } from '../src/storage.js';
 import { createRoutingRuntime } from '../src/routing.js';
 
 const adminModule = await import('../src/admin.js');
-const { addChain, addChainLink, addLocalKey, updateLocalKey } = adminModule;
+const { addChain, addChainLink, addLocalKey, routingInventory, updateLocalKey } = adminModule;
 
 function makeRuntime() {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'subchain-admin-'));
@@ -63,4 +63,17 @@ test('local-key administration persists a named Harness without rotating its tok
   const updated = updateLocalKey(runtime, created.key.id, { harnessId: 'default' });
   assert.equal(updated.harnessId, 'default');
   assert.equal(runtime.secretStore.get(created.key.secretRef), token);
+});
+
+test('provider inventory does not probe every unused numbered credential slot', () => {
+  const calls = [];
+  const providers = routingInventory(makeRuntime(), null, {
+    credentialResolver(providerId) {
+      calls.push(providerId);
+      return null;
+    },
+  }).providers;
+  assert.ok(providers.some((provider) => provider.id === 'google'));
+  assert.equal(calls.includes('google'), true);
+  assert.equal(calls.some((providerId) => /\d+$/.test(providerId)), false);
 });
