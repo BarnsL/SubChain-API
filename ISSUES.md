@@ -60,13 +60,12 @@ No open release-blocking issues are recorded for this revision.
   6. The Harness page showed 70,165 presets from three sources. Two expanded
      sections remained open after an 11-second refresh, and the no-credential
      badge remained fitted and aligned.
-- **Release verification (2026-08-17)**:
+- **Release verification for the reviewed implementation revision
+  (2026-08-17)**:
   1. `git push origin main` succeeded for the reviewed release revision.
   2. Local and remote `main` matched immediately after the push.
   3. The public GitHub repository returned HTTP 200.
   4. The GitHub contributors API returned exactly one contributor, `BarnsL`.
-  5. This issue-closure commit is local documentation and is not claimed as
-     pushed.
 
 ### SUB-013: Complete the exact public-release audit
 
