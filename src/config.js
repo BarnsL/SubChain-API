@@ -111,7 +111,7 @@ export function chainStatus(chain) {
       slots,
       accountCount: slots.length,
       keyCount: accounts.length,
-      hasKey: managed || accounts.length > 0,
+      hasKey: managed || Boolean(providerDef(l.provider).keyOptional) || accounts.length > 0,
       managed,
     };
   });

@@ -96,7 +96,7 @@ export function routingInventory(runtime, quota, {
     const status = statusStore?.get(providerId) || null;
     const managedRuntimeAvailable = def.transport !== 'http' && Boolean(managedProviderAvailable(providerId));
     const managedAuthenticated = def.transport !== 'http' && status?.health === 'ready';
-    const hasCredential = Boolean(credential) || managedAuthenticated;
+    const hasCredential = Boolean(credential) || managedAuthenticated || Boolean(def.keyOptional);
     const trackedQuota = quota?.get(providerId) || null;
     const storedQuotas = Array.isArray(status?.quotas) ? status.quotas : [];
     const statusQuota = storedQuotas.length ? {
@@ -158,7 +158,7 @@ export function routingInventory(runtime, quota, {
       links: links.length,
       localKeys: localKeys.length,
       ready: providers.filter((provider) => provider.hasCredential).length,
-      candidates: links.reduce((count, link) => count + Number(Boolean(resolveCredential(link.provider))), 0),
+      candidates: links.reduce((count, link) => count + Number(Boolean(resolveCredential(link.provider)) || Boolean(providerDef(link.provider).keyOptional)), 0),
     },
   };
 }
@@ -243,6 +243,34 @@ export function addChain(runtime, { id, name, link }) {
   return chain;
 }
 
+/** Rename an existing chain. Links and ordering are left untouched. */
+export function updateChain(runtime, chainId, { name } = {}) {
+  const chain = runtime.routing.chains.find((candidate) => candidate.id === chainId);
+  if (!chain) throw new Error(`unknown chain: ${chainId}`);
+  if (name !== undefined) {
+    if (typeof name !== 'string' || !name.trim()) throw new Error('chain name is required');
+    chain.name = name.trim();
+  }
+  persistRouting(runtime);
+  return chain;
+}
+
+export function removeChain(runtime, chainId) {
+  if (runtime.routing.chains.length <= 1) throw new Error('routing must retain at least one chain');
+  if (runtime.routing.localKeys.some((key) => key.target?.type === 'chain' && key.target.id === chainId)) {
+    throw new Error('chain is still targeted by a local key');
+  }
+  const index = runtime.routing.chains.findIndex((candidate) => candidate.id === chainId);
+  if (index === -1) throw new Error(`unknown chain: ${chainId}`);
+  const [removed] = runtime.routing.chains.splice(index, 1);
+  try {
+    persistRouting(runtime);
+  } catch (error) {
+    runtime.routing.chains.splice(index, 0, removed);
+    throw error;
+  }
+}
+
 export function addChainLink(runtime, chainId, link) {
   const chain = runtime.routing.chains.find((candidate) => candidate.id === chainId);
   if (!chain) throw new Error(`unknown chain: ${chainId}`);
@@ -259,6 +287,34 @@ export function addChainLink(runtime, chainId, link) {
     throw error;
   }
   return next;
+}
+
+/** Change one existing link in place, preserving any field not supplied. */
+export function updateChainLink(runtime, chainId, index, update = {}) {
+  const chain = runtime.routing.chains.find((candidate) => candidate.id === chainId);
+  if (!chain) throw new Error(`unknown chain: ${chainId}`);
+  if (!Number.isInteger(index) || index < 0 || index >= chain.links.length) throw new Error('invalid chain link index');
+  const current = chain.links[index];
+  const next = {
+    ...current,
+    ...update,
+    provider: update.provider ?? current.provider,
+    model: String(update.model ?? current.model).trim(),
+  };
+  assertLink(next);
+  chain.links[index] = {
+    provider: next.provider,
+    model: next.model,
+    ...(next.baseUrl ? { baseUrl: next.baseUrl } : {}),
+    ...(next.note ? { note: String(next.note).slice(0, 300) } : {}),
+  };
+  try {
+    persistRouting(runtime);
+  } catch (error) {
+    chain.links[index] = current;
+    throw error;
+  }
+  return chain.links[index];
 }
 
 export function removeChainLink(runtime, chainId, index) {

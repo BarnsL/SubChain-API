@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>SubChain</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%2314b8a6'/><path d='M12 11l-3 3a4 4 0 005.7 5.7l2-2m3.3-4.4l2-2A4 4 0 0016.3 5l-2 2m-2 9l7-7' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round'/></svg>" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <link rel="stylesheet" href="/app.css" />
 </head>
 <body>
@@ -36,13 +36,17 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.8 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.8-1.7"/></svg>
         Chain
       </button>
+      <button class="nav-item" data-page="harness">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+        Harness
+      </button>
       <button class="nav-item" data-page="logs">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4h14M5 9h14M5 14h9M5 19h6"/><circle cx="18" cy="17" r="3"/><path d="m20.2 19.2 1.8 1.8"/></svg>
         Logs
       </button>
-      <button class="nav-item" data-page="harness">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-        Harness
+      <button class="nav-item" data-page="chat">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v11H7l-3 3V5Z"/><path d="M8 9h8M8 12h5"/></svg>
+        Chat
       </button>
 
       <div class="nav-label">Subscriptions</div>
@@ -73,6 +77,10 @@
     </nav>
 
     <div class="sidebar-foot">
+      <a class="nav-item" href="https://github.com/BarnsL/SubChain-API" target="_blank" rel="noopener noreferrer">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.34 1.09 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg>
+        Repository
+      </a>
       <div class="nav-item" style="cursor:default">
         <span id="serverDot" class="dot" style="color:var(--muted-foreground)"></span>
         <span id="serverStatus">connecting…</span>
@@ -123,6 +131,26 @@
 
         <div class="section-head"><h2>Cooling off</h2><p>Routes temporarily skipped after a rate limit or error.</p></div>
         <div id="coolingBox"></div>
+
+        <!--
+          Static legend for the dynamic #coolingBox table. These descriptions deliberately mirror
+          chain.js: 400 and 422 stop the request, an Anthropic quota 400 and a wrong-system-block 429
+          are the documented exceptions, and every other failure cools that one route so the next
+          subscription or key can answer. Update both places together.
+        -->
+        <aside class="card cooling-legend" id="coolingErrorLegend" aria-labelledby="coolingErrorLegendTitle">
+          <h3 id="coolingErrorLegendTitle">HTTP error legend</h3>
+          <p>Provider state means configured, not live-tested. Cooling applies to one route so another subscription or key can answer. A subscription can also be skipped before any error when its measured usage is over the configured threshold.</p>
+          <dl class="cooling-legend-list">
+            <div><dt>400 / 422 · request rejected</dt><dd>The provider says the request itself is invalid or unsupported. SubChain stops instead of spending every route. An Anthropic 400 that reports the account is out of usage is the documented exception: it marks that subscription exhausted, cools it for ten minutes, and the chain continues.</dd></div>
+            <div><dt>401 / 403 · credential or session rejected</dt><dd>The API key was refused, or a subscription session expired and its OAuth token no longer authenticates. That route cools and the next one is tried; re-sign in or replace the credential on Providers.</dd></div>
+            <div><dt>404 · endpoint or model missing</dt><dd>The provider does not recognise the configured endpoint or model. The route cools while the chain continues; update the matching provider or Chain entry.</dd></div>
+            <div><dt>408 / network · timeout or unreachable</dt><dd>The provider did not answer inside the configured request timeout, or the connection failed. That route cools and SubChain advances to the next one.</dd></div>
+            <div><dt>409 · subscription not signed in</dt><dd>A managed transport refused the handoff because its CLI is not signed in, or the account behind it carries no active subscription. The route cools; complete sign-in on Providers.</dd></div>
+            <div><dt>429 · rate limited or window exhausted</dt><dd>The subscription or key is being limited. SubChain honours Retry-After when supplied, otherwise the configured cooldown. When the response names a quota family, the whole window (for example the five-hour or weekly allowance) is marked exhausted and skipped until it resets. An Anthropic 429 caused by a wrong system block cools for ten minutes instead.</dd></div>
+            <div><dt>5xx · provider or transport failure</dt><dd>The provider reported a server-side error, or a managed transport failed its handoff and returned 502. SubChain cools that route and continues down the chain.</dd></div>
+          </dl>
+        </aside>
       </section>
 
       <!-- ── Access key ───────────────────────────────────────────── -->
@@ -191,6 +219,17 @@
         <div id="chainList" class="stack"></div>
       </section>
 
+      <!-- ── Harness ──────────────────────────────────────────────── -->
+      <section class="page" id="page-harness">
+        <h1>Harness</h1>
+        <p class="lede">
+          Build named Harnesses by mixing identity, operating, safety, tool, reasoning, output,
+          behavior, persona, generation, and infrastructure components. Assign one to each local key.
+        </p>
+        <div id="harnessConfig"></div>
+        <div id="presetLibrary" class="preset-library card" aria-live="polite"></div>
+      </section>
+
       <!-- ── Logs ─────────────────────────────────────────────────── -->
       <section class="page" id="page-logs">
         <div class="log-title-row">
@@ -207,11 +246,14 @@
           </div>
         </div>
 
-        <div class="callout log-privacy">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
-          <div><strong>Metadata only.</strong> Prompts, responses, Harness bodies, preset bodies, tools, credentials, and private paths are never stored. Exact provider usage is labelled separately from four-character estimated usage. App and session values are client-reported.
-            <div class="log-storage" id="logStorage">Checking journal storage… Use <span class="mono">--no-log</span> for memory only.</div>
-          </div>
+        <!--
+          Shown only while raw retention is switched on. The reassurance copy was removed on
+          purpose; this warning is not decoration, it is the one place the dashboard admits that
+          prompts, responses, tool bodies, or presented keys are being written to disk.
+        -->
+        <div class="callout warn hidden" id="logRetentionCallout">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+          <div id="logRetentionNotice"></div>
         </div>
 
         <div class="stat-grid log-summary" id="logSummary" aria-label="Log summary">
@@ -249,15 +291,140 @@
         </div>
       </section>
 
-      <!-- ── Harness ──────────────────────────────────────────────── -->
-      <section class="page" id="page-harness">
-        <h1>Harness</h1>
-        <p class="lede">
-          Build named Harnesses by mixing identity, operating, safety, tool, reasoning, output,
-          behavior, persona, generation, and infrastructure components. Assign one to each local key.
-        </p>
-        <div id="harnessConfig"></div>
-        <div id="presetLibrary" class="preset-library card" aria-live="polite"></div>
+      <!-- ── Chat ─────────────────────────────────────────────────── -->
+      <section class="page" id="page-chat">
+        <div class="log-title-row">
+          <div>
+            <h1>Chat</h1>
+            <p class="lede">
+              A local operator that reads sanitized state, diagnoses routing, quota and credential
+              problems, and proposes changes. Nothing it suggests takes effect until you confirm it
+              here.
+            </p>
+          </div>
+          <div class="log-title-actions">
+            <button class="btn" id="btnOpRefresh" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        <div class="log-storage" id="opStatus">Connecting to the local operator…</div>
+
+        <div class="tabs" id="opTabs" role="tablist">
+          <button class="tab active" data-op-tab="chat" type="button">Chat</button>
+          <button class="tab" data-op-tab="doctor" type="button">Doctor</button>
+          <button class="tab" data-op-tab="security" type="button">Security</button>
+          <button class="tab" data-op-tab="providers" type="button">Providers</button>
+          <button class="tab" data-op-tab="settings" type="button">Settings</button>
+        </div>
+
+        <div class="op-panel active" id="op-tab-chat">
+          <div class="card op-chat">
+            <div class="op-messages" id="opMessages" aria-live="polite">
+              <div class="op-bubble assistant">I can inspect sanitized state, diagnose problems, guide provider setup, and propose changes for you to confirm.</div>
+            </div>
+            <div id="opPending"></div>
+            <div class="op-links" id="opLinks"></div>
+            <div class="op-quick">
+              <button class="btn btn-ghost btn-sm" type="button" data-op-prompt="Run a doctor check and explain what needs attention.">Doctor check</button>
+              <button class="btn btn-ghost btn-sm" type="button" data-op-prompt="Analyze recent logs for security and reliability problems.">Analyze logs</button>
+              <button class="btn btn-ghost btn-sm" type="button" data-op-prompt="Help me configure missing providers using detected credentials or official login pages.">Provider setup</button>
+              <button class="btn btn-ghost btn-sm" type="button" data-op-prompt="Review the routing chain and recommend improvements.">Review chain</button>
+            </div>
+            <div class="op-compose">
+              <textarea class="input" id="opInput" rows="2" placeholder="Ask about routing, credentials, quota, failures, or setup…"></textarea>
+              <button class="btn btn-primary" id="opSend" type="button">Send</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="op-panel" id="op-tab-doctor">
+          <div class="stat-grid" id="opDoctor" aria-label="Doctor checks">
+            <div class="stat log-skeleton"><div class="skeleton-line short"></div><div class="skeleton-line value"></div></div>
+            <div class="stat log-skeleton"><div class="skeleton-line short"></div><div class="skeleton-line value"></div></div>
+            <div class="stat log-skeleton"><div class="skeleton-line short"></div><div class="skeleton-line value"></div></div>
+          </div>
+        </div>
+
+        <div class="op-panel" id="op-tab-security">
+          <div class="callout">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 4 6v6c0 5 3.4 8.4 8 9 4.6-.6 8-4 8-9V6l-8-3Z"/></svg>
+            <div>Deterministic checks over the retained journal metadata. For the records themselves, use <strong>Logs</strong>.</div>
+          </div>
+          <div id="opSecurity"></div>
+        </div>
+
+        <div class="op-panel" id="op-tab-providers">
+          <div id="opProviders" class="stack"></div>
+        </div>
+
+        <div class="op-panel" id="op-tab-settings">
+          <div class="card">
+            <div class="section-head"><h2>Operator model</h2><p>Which model answers on this page.</p></div>
+            <p class="lede">
+              By default the operator routes through SubChain's own default local key, so it needs no
+              extra credential and obeys the same chain, quota and cooldown rules as any other client.
+            </p>
+            <label class="op-check"><input type="checkbox" id="opUseSelf" /> <span>Use this router itself</span></label>
+            <div class="op-fields">
+              <label><span>Base URL</span><input class="input" id="opBaseUrl" placeholder="https://api.example.com/v1" autocomplete="off" /></label>
+              <label><span>Model</span><input class="input" id="opModel" placeholder="model id" autocomplete="off" /></label>
+              <label><span>Control-model API key</span><input class="input" id="opKey" type="password" placeholder="stored in .env, never shown to the model" autocomplete="off" /></label>
+            </div>
+            <div class="op-actions">
+              <button class="btn btn-primary" id="opSaveModel" type="button">Save model settings</button>
+              <button class="btn" id="opSaveKey" type="button">Save key</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-head"><h2>Appearance</h2><p>Presentation only.</p></div>
+            <p class="lede">
+              These preferences never affect routing or security behaviour. They apply to this page
+              and to the rest of the dashboard.
+            </p>
+            <div class="op-fields">
+              <label><span>Theme</span><select class="input" id="opTheme"><option value="dark">dark</option><option value="light">light</option><option value="system">system</option></select></label>
+              <label><span>Font</span><select class="input" id="opFont"><option value="system">system</option><option value="sans">sans</option><option value="serif">serif</option><option value="mono">mono</option></select></label>
+              <label><span>Font scale</span><input class="input" id="opScale" type="number" min="0.8" max="1.4" step="0.05" /></label>
+              <label><span>Density</span><select class="input" id="opDensity"><option value="compact">compact</option><option value="comfortable">comfortable</option><option value="spacious">spacious</option></select></label>
+            </div>
+            <div class="op-actions"><button class="btn btn-primary" id="opSaveUi" type="button">Save appearance</button></div>
+          </div>
+
+          <div class="card">
+            <div class="section-head"><h2>Log policy</h2><p>What the journal is allowed to keep.</p></div>
+            <p class="lede">
+              By default SubChain writes metadata only: which local key called, which provider
+              answered, how long it took. Everything below turns some part of the actual traffic
+              into a stored record on this machine. Each one is off until you turn it on, and the
+              Logs page always states the policy currently in force.
+            </p>
+
+            <label class="op-check"><input type="checkbox" id="opPromptSummary" /> <span>Bounded, redacted prompt summaries <em>— newest few messages, URLs, paths, emails and keys stripped</em></span></label>
+            <label class="op-check"><input type="checkbox" id="opRawPrompts" /> <span>Raw prompts <em>— the request messages verbatim, unredacted, after Harness composition</em></span></label>
+            <label class="op-check"><input type="checkbox" id="opRawResponses" /> <span>Raw responses <em>— the model output verbatim, streaming included</em></span></label>
+            <label class="op-check"><input type="checkbox" id="opRawToolBodies" /> <span>Raw tool bodies <em>— tool definitions and tool_choice verbatim</em></span></label>
+
+            <div class="callout warn op-danger">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+              <div>
+                <label class="op-check"><input type="checkbox" id="opCredentials" /> <span><strong>Store presented credentials in clear text</strong></span></label>
+                The local key each caller sends is written to the journal as plain text. Useful for
+                one thing only — seeing what an app actually sent when its key is being rejected.
+                Anyone who can read that file gets working local keys. Turn it on to catch the bug,
+                then turn it off, rotate the key, and clear the journal.
+              </div>
+            </div>
+
+            <div class="op-fields">
+              <label><span>Raw capture ceiling (characters)</span><input class="input" id="opMaxRawChars" type="number" min="1000" max="64000" step="1000" /></label>
+            </div>
+            <div class="op-actions"><button class="btn btn-primary" id="opSaveLogs" type="button">Save log policy</button></div>
+          </div>
+        </div>
       </section>
 
     </div>
@@ -266,5 +433,6 @@
 
 <div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 <script type="module" src="/app.js"></script>
+<script type="module" src="/operator.js"></script>
 </body>
 </html>

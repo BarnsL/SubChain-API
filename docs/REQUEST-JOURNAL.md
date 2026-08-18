@@ -103,3 +103,53 @@ X-SubChain-Session-Id: 20260817_104721_e100f26c
 Treat the journal as private operational data. On shared machines, protect the
 operating-system account and do not expose either the API or dashboard beyond
 loopback.
+
+### Opt-in retention
+
+The journal stores metadata by default: which local key called, which provider
+answered, how long it took, how many tokens. None of the traffic itself is written. A
+host debugging their own router can change that on **Chat → Settings → Log
+policy**, one switch at a time:
+
+| Switch | What it writes |
+|---|---|
+| `promptSummary` | The newest few messages, truncated, with URLs, paths, emails and key-shaped strings stripped |
+| `rawPrompts` | `messages` verbatim, unredacted |
+| `rawResponses` | Model output verbatim, streaming included |
+| `rawToolBodies` | `tools` and `tool_choice` verbatim |
+| `credentials` | The local key each caller presented, in clear text |
+
+Four properties hold regardless of how the switches are set:
+
+1. **Fail closed.** Every switch requires an explicit `true`. A missing policy,
+   an empty policy, or a truthy-but-not-`true` value all capture nothing —
+   `summarizeInput(body)` with no policy is metadata-only.
+2. **The cap is not negotiable.** Policy decides whether a field is captured,
+   never how large it may grow. `RAW_HARD_CAP` (64k characters) is applied on
+   persist whatever `maxRawChars` asked for, and truncation is marked in the
+   stored value rather than done silently, so the journal's 5 MiB rotation
+   budget cannot be consumed by one enormous request.
+3. **The model cannot turn these on.** `set_log_policy` is an allowlisted
+   operator action, but `stripHumanOnlyLogFlags()` removes the four content
+   switches from anything the model proposes. Enabling them requires a human on
+   the Settings tab. The system prompt says the same thing; this is the part
+   that enforces it.
+4. **The Logs page states the policy in force.** Its retention callout ships
+   hidden and empty, and `renderRetentionNotice()` fills it from the live
+   settings only while something is actually being retained. There is no static
+   "never stored" sentence to become a lie: the page is silent when nothing is
+   captured and amber when something is, which is the only arrangement that
+   stays true at the moment it matters.
+
+#### On `credentials`
+
+This one is different in kind, and worth being blunt about. It writes working
+local keys to the request journal in clear text. Anyone who can read that
+file — a backup, a screen share, a stray `git add -f` — has working keys, and
+recovering means rotating the affected local key.
+
+It answers exactly one question well: *what did this app actually send?*, when
+a key is being rejected and the caller's config is not visible. `keyIndex` on
+each attempt already tells you which stored key was used, so for anything else
+you almost certainly do not need this. Turn it on, reproduce the failure, turn
+it off, then clear the journal from the operator.

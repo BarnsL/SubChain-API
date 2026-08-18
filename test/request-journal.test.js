@@ -10,6 +10,7 @@ import {
   requestMetadata,
   summarizeInput,
   summarizeJsonOutput,
+  RAW_HARD_CAP,
 } from '../src/request-journal.js';
 
 const temporaryDirectory = () => fs.mkdtempSync(path.join(os.tmpdir(), 'subchain-journal-'));
@@ -38,6 +39,9 @@ test('request and response summaries count content without retaining it', () => 
     inputChars: 36,
     toolCount: 1,
     maxTokens: 321,
+    // Present but empty: summaries are opt-in, and with no policy passed the
+    // switch fails closed.
+    promptSummary: [],
   });
   assert.equal(output.choiceCount, 1);
   assert.deepEqual(output.finishReasons, ['stop']);
@@ -220,4 +224,89 @@ test('SubChain ownership is applied before filtering, search, summary, and pagin
   assert.equal(journal.query({ ownerId: 'key-a', transport: 'codex-app-server' }).summary.total, 0);
   assert.equal(journal.query({ ownerId: 'key-a', before: 'key-b-record' }).items.length, 1);
   assert.doesNotMatch(JSON.stringify(owned), /Private Team Name|must-never-persist|b-session/);
+});
+
+// ── opt-in raw retention ──────────────────────────────────────────────
+//
+// These switches are the only path by which caller content reaches the disk,
+// so the important assertions are the negative ones: that nothing is captured
+// until a switch is explicitly true.
+
+const RAW_BODY = {
+  model: 'auto',
+  messages: [
+    { role: 'system', content: 'SYSTEM_SENTINEL' },
+    { role: 'user', content: 'USER_SENTINEL' },
+  ],
+  tools: [{ type: 'function', function: { name: 'TOOL_SENTINEL' } }],
+  tool_choice: 'auto',
+};
+
+test('raw capture is absent unless a switch is explicitly enabled', () => {
+  // A truthy-but-not-true value must not enable capture either.
+  for (const policy of [undefined, {}, { promptSummary: true }, { rawPrompts: false }, { rawPrompts: 'yes' }]) {
+    const summary = summarizeInput(RAW_BODY, policy);
+    assert.equal('raw' in summary, false, `raw must be absent for policy ${JSON.stringify(policy)}`);
+  }
+  // With no policy at all, nothing from the request survives — summaries
+  // included, since every retention switch fails closed.
+  for (const policy of [undefined, {}, { rawPrompts: 'yes' }]) {
+    assert.doesNotMatch(JSON.stringify(summarizeInput(RAW_BODY, policy)), /SENTINEL/);
+  }
+  assert.equal('rawOutput' in summarizeJsonOutput({ choices: [] }), false);
+});
+
+test('enabled switches capture their own content and nothing else', () => {
+  const prompts = summarizeInput(RAW_BODY, { rawPrompts: true });
+  assert.match(prompts.raw.messages, /USER_SENTINEL/);
+  assert.match(prompts.raw.messages, /SYSTEM_SENTINEL/);
+  assert.equal(prompts.raw.tools, undefined, 'tool bodies need their own switch');
+
+  const tools = summarizeInput(RAW_BODY, { rawToolBodies: true });
+  assert.match(tools.raw.tools, /TOOL_SENTINEL/);
+  assert.equal(tools.raw.messages, undefined, 'prompts need their own switch');
+  assert.equal(tools.raw.toolChoice, 'auto');
+
+  const json = summarizeJsonOutput({ choices: [{ message: { content: 'OUT_SENTINEL' } }] }, { rawResponses: true });
+  assert.match(json.rawOutput, /OUT_SENTINEL/);
+});
+
+test('the raw capture ceiling is enforced regardless of the requested size', () => {
+  const huge = { messages: [{ role: 'user', content: 'x'.repeat(200_000) }] };
+  // A policy asking for far more than the hard cap still gets the hard cap.
+  const captured = summarizeInput(huge, { rawPrompts: true, maxRawChars: 10_000_000 }).raw.messages;
+  assert.ok(captured.length <= RAW_HARD_CAP + 64, `expected <= hard cap, got ${captured.length}`);
+  assert.match(captured, /truncated \d+ chars/, 'truncation must be visible, not silent');
+});
+
+test('raw fields survive the safeRecord allowlist and clear when switched off', () => {
+  const journal = new RequestJournal({ enabled: true, limit: 10 });
+  journal.append({
+    id: 'raw-1',
+    startedAt: new Date().toISOString(),
+    route: '/v1/chat/completions',
+    status: 200,
+    request: { inputSummary: summarizeInput(RAW_BODY, { rawPrompts: true, rawToolBodies: true }) },
+    result: summarizeJsonOutput({ choices: [{ message: { content: 'OUT_SENTINEL' } }] }, { rawResponses: true }),
+    auth: { result: 'rejected', ownership: 'subchain-local-key', credential: 'Bearer CRED_SENTINEL' },
+  });
+  const kept = journal.query({ limit: 1 }).items[0];
+  assert.match(kept.request.inputSummary.raw.messages, /USER_SENTINEL/);
+  assert.match(kept.request.inputSummary.raw.tools, /TOOL_SENTINEL/);
+  assert.match(kept.result.rawOutput, /OUT_SENTINEL/);
+  assert.equal(kept.auth.credential, 'Bearer CRED_SENTINEL');
+
+  // With the switches off the same request keeps no trace of its content.
+  journal.append({
+    id: 'raw-2',
+    startedAt: new Date().toISOString(),
+    route: '/v1/chat/completions',
+    status: 200,
+    request: { inputSummary: summarizeInput(RAW_BODY, { promptSummary: false }) },
+    result: summarizeJsonOutput({ choices: [{ message: { content: 'OUT_SENTINEL' } }] }),
+    auth: { result: 'accepted', ownership: 'subchain-local-key' },
+  });
+  const clean = journal.query({ limit: 1 }).items[0];
+  assert.equal(clean.id, 'raw-2');
+  assert.doesNotMatch(JSON.stringify(clean), /SENTINEL/);
 });

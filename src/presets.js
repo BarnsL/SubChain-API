@@ -23,6 +23,15 @@ export const PRESET_SOURCES = [
     repository: 'https://github.com/Piebald-AI/claude-code-system-prompts.git',
     include: /^system-prompts\/.*\.md$/i,
   },
+  {
+    // DeepSeek Harness (MIT). Its system prompt is assembled in TypeScript, so
+    // the prompt-shaped assets worth importing are the SKILL.md agent
+    // instruction documents. Localized copies are excluded: `.zh.md` duplicates
+    // would double every entry without adding a distinct preset.
+    id: 'deepseek-harness',
+    repository: 'https://github.com/deepseek-ai/deepseek-harness.git',
+    include: /^(?!.*\.zh\.md$).*\/SKILL\.md$/i,
+  },
 ];
 
 const PRESET_ID = (source, file, entry) => Buffer.from(JSON.stringify([source, file, entry]), 'utf8').toString('base64url');

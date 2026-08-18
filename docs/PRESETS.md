@@ -11,6 +11,7 @@ provenance rules, never the upstream prompt bodies.
 | CL4R1T4S | approved provider directories with text prompt files | model and provider operating behavior |
 | tweakcc | declared prompt JSON | focused prompt components and custom behavior |
 | claude-code-system-prompts | declared system-prompt Markdown | system, tool, safety, and behavioral components |
+| deepseek-harness | `SKILL.md` agent instruction documents (MIT), localized `.zh.md` copies excluded | tool, operating, and behavioral components |
 
 Run `npm run import-presets` to fetch current revisions. Each private source
 directory receives a manifest containing the repository, commit revision,

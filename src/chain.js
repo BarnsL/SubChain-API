@@ -1,5 +1,6 @@
 import { resolveAccounts } from './config.js';
 import { resolveCredential } from './auth.js';
+import { providerDef } from './providers.js';
 import { transformRequest, transformResponse, transformStreamChunk, authHeader } from './transforms.js';
 
 export class ChainError extends Error {
@@ -94,6 +95,17 @@ export function candidatesFor(scope, requestedModel, { managedTransports } = {})
         key: credential.token,
         keyIndex: 0,
         credential,
+        id: `${link.index}:${link.provider}:0`,
+      });
+    } else if (providerDef(link.provider).keyOptional) {
+      // Key-optional lanes (a local OpenAI-compatible server) stay dispatchable
+      // with no credential at all rather than being skipped as unauthorized.
+      out.push({
+        link,
+        provider: link.provider,
+        key: null,
+        keyIndex: 0,
+        credential: null,
         id: `${link.index}:${link.provider}:0`,
       });
     }

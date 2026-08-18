@@ -132,7 +132,7 @@ function slotCredential(context, providerId, type) {
 }
 
 const resolverTypes = {
-  anthropic: 'bearer', 'openai-api': 'api-key', kimi: 'api-key', google: 'api-key', zhipu: 'api-key', sakana: 'api-key',
+  anthropic: 'bearer', 'openai-api': 'api-key', openrouter: 'api-key', groq: 'api-key', dario: 'api-key', local: 'api-key', deepseek: 'api-key', kimi: 'api-key', google: 'api-key', zhipu: 'api-key', sakana: 'api-key',
 };
 
 const resolvers = {
@@ -153,6 +153,51 @@ const resolvers = {
       ...environmentCandidates(context, ['OPENAI_API_KEY']),
       [credentialDirectory(context, 'openai-api-key.txt'), 'credential-directory'],
       [platformCredential(context, ['OPENAI_API_KEY']), 'platform-store'],
+    ], 'api-key');
+  },
+
+  openrouter(context) {
+    return firstCredential([
+      [context.env.SUBCHAIN_OPENROUTER_API_KEY, 'override'],
+      ...environmentCandidates(context, ['OPENROUTER_API_KEY']),
+      [credentialDirectory(context, 'openrouter-api-key.txt'), 'credential-directory'],
+      [platformCredential(context, ['OPENROUTER_API_KEY']), 'platform-store'],
+    ], 'api-key');
+  },
+
+  groq(context) {
+    return firstCredential([
+      [context.env.SUBCHAIN_GROQ_API_KEY, 'override'],
+      ...environmentCandidates(context, ['GROQ_API_KEY']),
+      [credentialDirectory(context, 'groq-api-key.txt'), 'credential-directory'],
+      [platformCredential(context, ['GROQ_API_KEY']), 'platform-store'],
+    ], 'api-key');
+  },
+
+  // Dario authenticates locally with a fixed placeholder token. The real Claude
+  // subscription credential stays inside Dario and is never read by SubChain.
+  dario(context) {
+    return firstCredential([
+      [context.env.SUBCHAIN_DARIO_API_KEY, 'override'],
+      ...environmentCandidates(context, ['DARIO_API_KEY']),
+      [credentialDirectory(context, 'dario-api-key.txt'), 'credential-directory'],
+    ], 'api-key') || { token: 'dario', type: 'api-key', source: 'local-default' };
+  },
+
+  local(context) {
+    return firstCredential([
+      [context.env.SUBCHAIN_LOCAL_API_KEY, 'override'],
+      ...environmentCandidates(context, ['LOCAL_API_KEY']),
+      [credentialDirectory(context, 'local-api-key.txt'), 'credential-directory'],
+    ], 'api-key');
+  },
+
+  deepseek(context) {
+    return firstCredential([
+      [context.env.SUBCHAIN_DEEPSEEK_API_KEY, 'override'],
+      ...environmentCandidates(context, ['DEEPSEEK_API_KEY']),
+      [credentialDirectory(context, 'deepseek-api-key.txt'), 'credential-directory'],
+      [platformCredential(context, ['DEEPSEEK_API_KEY']), 'platform-store'],
     ], 'api-key');
   },
 

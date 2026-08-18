@@ -75,6 +75,7 @@ requests before parsing their bodies.
 | Preset import, provenance, classification | `bin/import-presets.mjs`, `src/presets.js` | manifest, path, filter, preview tests |
 | HTTP routes and loopback admin boundary | `src/server.js` | auth-before-model-listing and loopback API tests |
 | Dashboard structure and behavior | `src/webui/index.html`, `src/webui/app.js`, `src/webui/ui-state.js` | browser QA, syntax check, state tests |
+| Harness component guidance, tooltips and preset relevance | `src/webui/app.js`, `src/webui/app.css`, `docs/HARNESS.md` | `test/harness-guidance.test.js`, browser QA |
 | Dashboard layout and responsive behavior | `src/webui/app.css` | wide and narrow viewport inspection |
 | Private file locations and permissions | `src/storage.js` | storage tests on supported platforms |
 | Public-release scan | `scripts/audit-public-release.mjs` | run against the exact staged commit |
@@ -112,6 +113,25 @@ expired, failed, or cancelled enrollment, start a new connection. For a
 refresh-error, the ChatGPT sign-in remains connected: retry **Ping** rather
 than enrolling again.
 
+### Parity with dario
+
+Checked against `askalf/dario` on 2026-08-18. dario is not a multi-provider
+catalog: `src/provider-adapter.ts` declares `type ProviderId = 'claude' |
+'openai'`, where `claude` is the OAuth subscription transport and `openai` is
+any OpenAI-compatible base URL added with `dario backend add <name> --key
+--base-url`. Groq, OpenRouter and Ollama appear in its README as example base
+URLs for that generic backend, not as separate providers.
+
+Every one of those is already covered here, so **no provider was missing** and
+none was added. What was missing were models, not providers: dario derives a
+`[1m]` long-context variant for every family except haiku, and the `dario`
+entry in `src/providers.js` advertised `contextWindow: 1_000_000` while listing
+no model id that could reach it. The three `[1m]` ids are now listed there.
+
+Re-run this comparison against `src/provider-adapter.ts` and
+`src/model-catalog.ts`, not the README, which describes example configurations
+rather than a catalog.
+
 ## Release checklist
 
 ```bash
@@ -126,3 +146,40 @@ assignment, scoped `/v1/models`, and one OpenAI-compatible completion. Confirm
 the staged history uses the intended single contributor name. A public release
 must not include credentials, generated presets, routing files, private logs,
 absolute user paths, account identities, or personal contributor details.
+
+## Dashboard layout contract
+
+### Text containment
+
+Shared rule with the other two chain dashboards: no string may overflow its card, and the page
+itself never scrolls sideways. `src/webui/app.css` ends with a zero-specificity `:where()` block
+that gives every card-like container `min-width: 0` and `overflow-wrap: anywhere`, and pushes
+anything genuinely unwrappable (`<pre>`, tables) into its own horizontal scroll box.
+
+It is structural rather than per-component on purpose. Provider ids, model names, base URLs, request
+ids, key chips and raw upstream error text are all lengths this project does not control, so fixing
+one card only moves the bug to the next card someone adds. Writing the block with `:where()` keeps
+its specificity at zero, so deliberate widths set elsewhere still win.
+
+Change it in FreeChain, SubChain and VisionChain together, and verify at 1280px and at 380px.
+
+### Grids size on the container, not the viewport
+
+A card grid must be `repeat(auto-fit, minmax(<real minimum>, 1fr))`, never a fixed column count
+with a media query as its escape hatch.
+
+The failure this prevents is not hypothetical. The Logs summary was `repeat(4, minmax(0, 1fr))`
+relaxed to two columns below an 880px viewport. At a 960px window the 248px sidebar is still
+present, so the content column is only ~620px: above the breakpoint, but four tiles wide. Each
+tile got 105px of usable width for a 95px label, and the filter row — a fixed five columns —
+clipped its placeholders to "chain or provide". The viewport was never the constraint; the
+container was, and a viewport media query cannot see it.
+
+`minmax(0, ...)` is the specific trap. It permits a track to shrink to nothing, which is right for
+a scroll container and wrong for anything holding text. Give every text-bearing track a minimum it
+can actually be read at.
+
+Verify by narrowing the window with the sidebar visible, not by narrowing past the breakpoint —
+the bug lives between those two states.
+
+

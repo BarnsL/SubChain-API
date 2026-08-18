@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { summarizePromptContext } from './operator-prompt-summary.js';
 
 const DEFAULT_MAX_ENTRIES = 500;
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
@@ -67,7 +68,56 @@ export function estimatedUsage(inputChars = 0, outputChars = 0) {
   return { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens, source: 'estimated' };
 }
 
-export function summarizeInput(body = {}) {
+// ── Opt-in raw retention ──────────────────────────────────────────────
+//
+// Everything else in this file is deliberately lossy: it counts, classifies
+// and redacts rather than storing what was said. These helpers are the one
+// exception, and they exist because a host debugging their own router
+// sometimes genuinely needs the exact bytes.
+//
+// They are inert unless the matching switch is on in the operator's log
+// policy (Chat → Settings), every switch defaults to off, and each blob is
+// hard-capped so one enormous request cannot consume the journal's rotation
+// budget on its own. Capture is a policy decision; the cap is not.
+
+const RAW_DEFAULT_MAX = 20_000;
+/** Defensive ceiling applied on persist, whatever the policy asked for. */
+export const RAW_HARD_CAP = 64_000;
+
+const rawLimit = (policy = {}) => Math.max(
+  1_000,
+  Math.min(RAW_HARD_CAP, finiteNumber(policy.maxRawChars) ?? RAW_DEFAULT_MAX),
+);
+
+/** Serialise `value`, truncating with a visible marker rather than silently. */
+const boundedJson = (value, limit) => {
+  let text;
+  try {
+    text = typeof value === 'string' ? value : JSON.stringify(value);
+  } catch {
+    return undefined;
+  }
+  if (typeof text !== 'string' || !text) return undefined;
+  return text.length > limit
+    ? `${text.slice(0, limit)}…[truncated ${text.length - limit} chars]`
+    : text;
+};
+
+/** Verbatim request capture. Returns undefined unless a switch enabled it. */
+function rawRequestCapture(body = {}, policy = {}) {
+  const wantPrompts = policy.rawPrompts === true;
+  const wantTools = policy.rawToolBodies === true;
+  if (!wantPrompts && !wantTools) return undefined;
+  const limit = rawLimit(policy);
+  const out = {};
+  if (wantPrompts && Array.isArray(body.messages)) out.messages = boundedJson(body.messages, limit);
+  if (wantTools && Array.isArray(body.tools)) out.tools = boundedJson(body.tools, limit);
+  if (wantTools && body.tool_choice !== undefined) out.toolChoice = boundedJson(body.tool_choice, 2_000);
+  return Object.keys(out).length ? out : undefined;
+}
+
+export function summarizeInput(body = {}, policy = {}) {
+  const raw = rawRequestCapture(body, policy);
   const messages = Array.isArray(body.messages) ? body.messages : [];
   const roles = {};
   let inputChars = 0;
@@ -84,10 +134,21 @@ export function summarizeInput(body = {}) {
     inputChars,
     toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
     maxTokens: finiteNumber(body.max_tokens ?? body.max_completion_tokens),
+    // Limited useful context: newest text only, strongly redacted/bounded.
+    // Fail closed, like every other retention switch here: a caller that
+    // forgets to pass a policy gets metadata, not content. Only an explicit
+    // `true` turns summaries on.
+    promptSummary: policy.promptSummary === true ? summarizePromptContext(body, {
+      maxChars: policy.maxSummaryChars || 280,
+      maxItems: policy.maxContextItems || 3,
+    }) : [],
+    // Omitted entirely rather than set to undefined, so a metadata-only record
+    // has no raw key at all.
+    ...(raw ? { raw } : {}),
   };
 }
 
-export function summarizeJsonOutput(payload) {
+export function summarizeJsonOutput(payload, policy = {}) {
   const outputBytes = Buffer.byteLength(typeof payload === 'string' ? payload : JSON.stringify(payload ?? ''));
   let parsed = payload;
   if (typeof payload === 'string') {
@@ -105,10 +166,13 @@ export function summarizeJsonOutput(payload) {
     choiceCount: choices.length,
     finishReasons,
     usage: exactUsage(parsed?.usage),
+    ...(policy.rawResponses === true
+      ? { rawOutput: boundedJson(parsed, rawLimit(policy)) }
+      : {}),
   };
 }
 
-export function createSseMeter() {
+export function createSseMeter(policy = {}) {
   const decoder = new TextDecoder();
   let pending = '';
   let outputBytes = 0;
@@ -116,6 +180,11 @@ export function createSseMeter() {
   let usage = null;
   const choiceIndexes = new Set();
   const finishReasons = new Set();
+  // Assembled only when the host asked for raw responses. Growth is bounded
+  // as we go, so a long stream cannot accumulate without limit in memory.
+  const wantRaw = policy.rawResponses === true;
+  const rawCap = rawLimit(policy);
+  let rawOutput = '';
 
   const consumeLine = (line) => {
     if (!line.startsWith('data:')) return;
@@ -127,7 +196,9 @@ export function createSseMeter() {
       for (let index = 0; index < choices.length; index++) {
         const choice = choices[index];
         choiceIndexes.add(finiteNumber(choice?.index) ?? index);
-        outputChars += outputText(choice).length;
+        const text = outputText(choice);
+        outputChars += text.length;
+        if (wantRaw && rawOutput.length < rawCap) rawOutput += text;
         const reason = cleanText(choice?.finish_reason, 64);
         if (reason) finishReasons.add(reason);
       }
@@ -156,6 +227,7 @@ export function createSseMeter() {
         choiceCount: choiceIndexes.size,
         finishReasons: [...finishReasons],
         usage: usage ?? estimatedUsage(inputChars, outputChars),
+        ...(wantRaw ? { rawOutput: boundedJson(rawOutput, rawCap) } : {}),
       };
     },
   };
@@ -205,6 +277,17 @@ const safeUsage = (usage) => {
   });
 };
 
+/**
+ * Pass a verbatim opt-in field through unchanged apart from a length ceiling.
+ *
+ * Deliberately not cleanText: these fields exist precisely because the host
+ * asked for the exact bytes, so stripping control characters would defeat
+ * them. The cap is unconditional — policy decides whether a field is captured
+ * at all, never how large it may grow once it is.
+ */
+const rawField = (value, limit = RAW_HARD_CAP) =>
+  (typeof value === 'string' && value ? value.slice(0, limit) : undefined);
+
 const safeRecord = (record = {}) => {
   const input = record.request?.inputSummary;
   const request = compact({
@@ -221,6 +304,20 @@ const safeRecord = (record = {}) => {
             inputChars: finiteNumber(input.inputChars),
             toolCount: finiteNumber(input.toolCount),
             maxTokens: finiteNumber(input.maxTokens),
+            promptSummary: Array.isArray(input.promptSummary)
+              ? input.promptSummary.slice(0, 6).map((item) => compact({
+                  role: cleanText(item?.role, 24),
+                  summary: cleanText(item?.summary, 600),
+                }))
+              : undefined,
+            // Present only when the host enabled raw retention. cleanText is
+            // not used here on purpose — the point of these fields is that
+            // they are verbatim — but the hard cap always applies.
+            raw: input.raw && typeof input.raw === 'object' ? compact({
+              messages: rawField(input.raw.messages),
+              tools: rawField(input.raw.tools),
+              toolChoice: rawField(input.raw.toolChoice),
+            }) : undefined,
           })
         : undefined,
   });
@@ -268,6 +365,9 @@ const safeRecord = (record = {}) => {
     auth: record.auth && compact({
       result: cleanText(record.auth.result, 40),
       ownership: cleanText(record.auth.ownership, 40),
+      // Only ever set when the host turned credential retention on. This is
+      // the presented secret in clear text; see the warning in DEPLOYMENT.md.
+      credential: rawField(record.auth.credential, 600),
     }),
     localKeyId: cleanText(record.localKeyId, 80),
     target: record.target && compact({
@@ -291,6 +391,7 @@ const safeRecord = (record = {}) => {
         : undefined,
       outputChars: finiteNumber(record.result.outputChars),
       outputBytes: finiteNumber(record.result.outputBytes),
+      rawOutput: rawField(record.result.rawOutput),
       usage: safeUsage(record.result.usage),
       quota: record.result.quota && compact({
         family: cleanText(record.result.quota.family, 80),
@@ -427,6 +528,16 @@ export class RequestJournal {
       }
     }
     return sanitized;
+  }
+
+  /** Drop every retained record, including any persisted JSONL predecessors. */
+  clear() {
+    this.records = [];
+    if (this.persist) {
+      fs.rmSync(this.filePath, { force: true });
+      fs.rmSync(`${this.filePath}.1`, { force: true });
+    }
+    return { ok: true, cleared: true };
   }
 
   query({ limit = 50, before, status, provider, app, route, target, harness, transport, q, ownerId } = {}) {

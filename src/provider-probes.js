@@ -65,6 +65,7 @@ export function quotaBucketsFromHeaders(headers, now = Date.now()) {
 }
 
 function authorizationHeaders(credential, def) {
+  if (!credential) return {};
   if (def.family === 'anthropic') {
     return { Authorization: `Bearer ${credential.token}`, 'anthropic-version': '2023-06-01' };
   }
@@ -74,7 +75,7 @@ function authorizationHeaders(credential, def) {
 async function pingHttp(providerId, dependencies) {
   const def = providerDef(providerId);
   const credential = dependencies.credentialResolver(providerId);
-  if (!credential) throw Object.assign(new Error('No authorized credential source is available'), { statusCode: 409 });
+  if (!credential && !def.keyOptional) throw Object.assign(new Error('No authorized credential source is available'), { statusCode: 409 });
   const timeout = AbortSignal.timeout(dependencies.timeoutMs);
   const response = await dependencies.fetchImpl(`${def.baseUrl.replace(/\/+$/, '')}/models`, {
     method: 'GET',

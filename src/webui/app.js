@@ -20,7 +20,7 @@ let logsNextRefreshAt = 0;
 let logsStale = false;
 let logsPaused = false;
 const harnessExpansion = createHarnessExpansionState();
-const presetLibrary = { loaded: false, loading: false, query: '', source: '', component: '', page: null, selected: null, request: 0 };
+const presetLibrary = { loaded: false, loading: false, query: '', source: '', component: '', page: null, selected: null, request: 0, pendingTarget: '' };
 let activeHarnessId = localStorage.getItem('subchain.harness.active') || 'default';
 const subscriptionLogin = createSubscriptionLoginState({
   start: () => api('/admin/providers/openai-codex/connect', { method: 'POST' }),
@@ -640,6 +640,71 @@ const HARNESS_COMPONENTS = [
   { key: 'persona', label: 'Persona' },
 ];
 
+// Per-component guidance. `guide` is the always-visible line under the label;
+// `detail` is the tooltip body. `belongs`/`avoid` exist because the components
+// are easy to confuse — the usual mistake is putting process into Identity or
+// formatting into Behavioral mode, which quietly weakens both.
+const HARNESS_GUIDE = {
+  identity: {
+    guide: 'Who the model is. Keep it short and stable.',
+    detail: 'A standing role statement prepended to every request on this Harness. It answers "who am I" and nothing else, so it stays true no matter what the user asks.',
+    belongs: 'A role and its domain: "You are a senior Go reviewer for a payments team."',
+    avoid: 'Step-by-step process. That is Operating instructions.',
+  },
+  operatingInstructions: {
+    guide: 'How the model should work through a task.',
+    detail: 'The working method: what to do first, when to ask instead of assume, how to sequence a job, what "done" means. This is the largest component in most Harnesses.',
+    belongs: 'Workflow, ordering, verification steps, when to check in.',
+    avoid: 'Refusal rules (Safety policy) and formatting (Output style).',
+  },
+  safetyPolicy: {
+    guide: 'What the model must refuse, confirm, or escalate.',
+    detail: 'Hard limits, expressed as rules rather than preferences. Keep it separate from Operating instructions so a workflow edit can never silently loosen a limit.',
+    belongs: 'Prohibited actions, required confirmations, escalation paths.',
+    avoid: 'Tone and formatting. Those never belong in a limit.',
+  },
+  toolPolicy: {
+    guide: 'When and how tools may be called.',
+    detail: 'Which tools are in scope, which need confirmation before they take effect, and how results should be treated. Applies on top of whatever the client already enforces.',
+    belongs: 'Allowed tools, confirmation before side effects, retry and failure handling.',
+    avoid: 'How hard to think before acting. That is Reasoning policy.',
+  },
+  reasoningPolicy: {
+    guide: 'How much to think before answering.',
+    detail: 'Depth and verification: when to slow down, when to check work, when a quick answer is the right answer. Pairs with the Reasoning effort generation default.',
+    belongs: 'Depth rules, self-checks, when to explore alternatives.',
+    avoid: 'Output length or formatting. That is Output style.',
+  },
+  outputStyle: {
+    guide: 'How the answer is shaped on the page.',
+    detail: 'Presentation only: length, structure, markdown, code fences, tables, whether to show intermediate work. Changing this must never change what the model is willing to do.',
+    belongs: 'Formatting, length targets, structure, code-block conventions.',
+    avoid: 'Behavioural rules. Those change conduct, not presentation.',
+  },
+  behavioralMode: {
+    guide: 'The operating mode the model runs in.',
+    detail: 'A named mode that shifts overall conduct — plan-first, minimal, focused, review-oriented. Modes compose badly, so prefer one clear mode over several blended ones.',
+    belongs: 'Mode definitions: plan before acting, minimal output, review-only.',
+    avoid: 'Identity. A mode is what it does, not who it is.',
+  },
+  persona: {
+    guide: 'Voice and personality.',
+    detail: 'Register and manner: warm or terse, formal or casual, humour or none. Purely expressive — a persona must never be able to grant a capability or relax a limit.',
+    belongs: 'Tone, register, verbosity of manner, humour.',
+    avoid: 'Capabilities and permissions. Those live in Tool and Safety policy.',
+  },
+  temperature: { guide: 'Randomness. Lower is more deterministic.', detail: 'Typically 0 to 2. Leave empty to use whatever the provider defaults to; not every provider interprets the scale identically.' },
+  top_p: { guide: 'Nucleus sampling cutoff.', detail: 'Typically 0 to 1. Tune this or Temperature, rarely both — together they interact in ways that are hard to reason about.' },
+  top_k: { guide: 'Limits sampling to the K most likely tokens.', detail: 'Supported by some providers and silently ignored by others. Leave empty unless a provider you actually route to honours it.' },
+  max_tokens: { guide: 'Ceiling on response length.', detail: 'A hard cap on output tokens, not a target. Set too low, answers truncate mid-sentence; leave empty for the provider default.' },
+  effort: { guide: 'How much reasoning budget to request.', detail: 'Maps onto provider reasoning controls where they exist. Pairs with Reasoning policy: this buys the budget, that spends it.' },
+  stream: { guide: 'Whether responses stream by default.', detail: 'A client asking for streaming explicitly still wins. This only sets the default when the request does not say.' },
+  service_tier: { guide: 'Provider service tier.', detail: 'Passed through to providers that support tiers; ignored elsewhere. Affects latency, cost and priority, never behaviour.' },
+  user_id: { guide: 'Stable identifier sent to the provider.', detail: 'Used by some providers for abuse tracking and caching. Use an opaque value — never a real name, email, or anything identifying.' },
+  aliases: { guide: 'Rewrite model names before routing.', detail: 'A JSON object mapping the name a client asks for to the model actually used, so you can retarget a client whose model picker you do not control.' },
+  headers: { guide: 'Extra HTTP metadata on every upstream request.', detail: 'A JSON object of additional request headers. Credential, cookie, host and connection headers are rejected, so this cannot be used to smuggle authentication.' },
+};
+
 const HARNESS_SECTIONS = [
   { key: 'identity-operating', label: 'Identity and operating instructions', fields: HARNESS_COMPONENTS.slice(0, 2).map((field) => ({ ...field, type: 'textarea', scope: 'components' })) },
   { key: 'safety-tools', label: 'Safety and tools', fields: HARNESS_COMPONENTS.slice(2, 4).map((field) => ({ ...field, type: 'textarea', scope: 'components' })) },
@@ -663,7 +728,33 @@ const HARNESS_SECTIONS = [
 
 const presetSourceLabel = (source) => ({
   cl4r1t4s: 'CL4R1T4S', tweakcc: 'tweakcc', 'claude-code-system-prompts': 'Claude Code system prompts',
+  'deepseek-harness': 'DeepSeek Harness',
 }[source] || source);
+
+const componentLabel = (key) => HARNESS_COMPONENTS.find((item) => item.key === key)?.label || key;
+
+/** Where this preset will land: an explicit field choice, else its classification. */
+const presetTarget = (entry) =>
+  presetLibrary.pendingTarget || entry?.suggestedComponent || 'operatingInstructions';
+
+const isMismatched = (entry, target) =>
+  Boolean(entry?.suggestedComponent) && entry.suggestedComponent !== target;
+
+/**
+ * Applying a Behavioral mode preset to Safety policy is allowed — the
+ * classification is a guess from metadata, not a contract — but it is far more
+ * often a slip than an intent, so say so plainly before it is applied.
+ */
+function mismatchNotice(entry, target) {
+  if (!isMismatched(entry, target)) return '';
+  const guide = HARNESS_GUIDE[target];
+  return `<div class="preset-mismatch" role="alert">
+      <strong>This preset was not written for ${esc(componentLabel(target))}.</strong>
+      <p>SubChain classified it as <strong>${esc(componentLabel(entry.suggestedComponent))}</strong>. Applying it here puts ${esc(componentLabel(entry.suggestedComponent).toLowerCase())} text into a field the model reads as ${esc(componentLabel(target).toLowerCase())}.</p>
+      ${guide?.belongs ? `<p class="preset-mismatch-hint">${esc(componentLabel(target))} expects: ${esc(guide.belongs)}</p>` : ''}
+      <p class="preset-mismatch-hint">Switch <em>Apply to</em> back to ${esc(componentLabel(entry.suggestedComponent))}, or continue if you meant it.</p>
+    </div>`;
+}
 
 function renderPresetLibrary() {
   const root = $('#presetLibrary');
@@ -686,14 +777,16 @@ function renderPresetLibrary() {
         </button>`).join('')
       : '<div class="preset-empty">No imported presets match this search.</div>';
   const selected = presetLibrary.selected;
+  const mismatch = selected ? isMismatched(selected, presetTarget(selected)) : false;
   const preview = selected ? `<div class="preset-preview">
       <div class="preset-preview-head"><h3>${esc(selected.title)}</h3><span class="preset-count">${selected.content.length.toLocaleString()} characters</span></div>
       <pre>${esc(selected.content.slice(0, 4000))}${selected.content.length > 4000 ? '\n\n[Preview truncated. Applying uses the complete imported preset.]' : ''}</pre>
       <div class="preset-apply">
-        <label class="form-field">Apply to<select class="input" data-preset-target>${HARNESS_COMPONENTS.map((component) => `<option value="${component.key}" ${component.key === (selected.suggestedComponent || 'operatingInstructions') ? 'selected' : ''}>${esc(component.label)}</option>`).join('')}</select></label>
+        <label class="form-field">Apply to<select class="input" data-preset-target>${HARNESS_COMPONENTS.map((component) => `<option value="${component.key}" ${component.key === presetTarget(selected) ? 'selected' : ''}>${esc(component.label)}</option>`).join('')}</select></label>
         <label class="form-field">Mode<select class="input" data-preset-mode><option value="replace">Replace</option><option value="append">Append</option></select></label>
-        <button class="btn btn-sm" type="button" data-apply-preset>Apply preset</button>
+        <button class="btn btn-sm" type="button" data-apply-preset>${mismatch ? 'Apply anyway' : 'Apply preset'}</button>
       </div>
+      ${mismatchNotice(selected, presetTarget(selected))}
     </div>` : '';
   root.innerHTML = `<div class="preset-library-head"><h2>Imported preset library</h2><span class="preset-count">${page ? `${page.total.toLocaleString()} matching` : 'Preparing library'}</span></div>
     <p>Presets are inert text. SubChain classifies likely functions from metadata, then lets you choose the exact component before applying the complete source text.</p>
@@ -725,6 +818,27 @@ async function loadPresetEntries() {
   }
 }
 
+/**
+ * Open the shared library scoped to one component. The filter is the whole
+ * point: the classifier already knows which component a preset was written
+ * for, so browsing from a field should never start from the full 70k corpus.
+ */
+function browsePresetsFor(componentKey) {
+  presetLibrary.component = componentKey;
+  presetLibrary.selected = null;
+  presetLibrary.pendingTarget = componentKey;
+  renderPresetLibrary();
+  void loadPresetEntries();
+  $('#presetLibrary')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+$('#harnessConfig').addEventListener('click', (event) => {
+  const browse = event.target.closest('[data-browse-presets]');
+  if (!browse) return;
+  event.preventDefault();
+  browsePresetsFor(browse.dataset.browsePresets);
+});
+
 let presetSearchDebounce;
 $('#presetLibrary').addEventListener('input', (event) => {
   const field = event.target.closest('[data-preset-query]');
@@ -740,13 +854,20 @@ $('#presetLibrary').addEventListener('change', (event) => {
   if (field.matches('[data-preset-source]')) presetLibrary.source = field.value;
   else presetLibrary.component = field.value;
   presetLibrary.selected = null;
+  presetLibrary.pendingTarget = '';
   void loadPresetEntries();
+});
+$('#presetLibrary').addEventListener('change', (event) => {
+  if (!event.target.closest('[data-preset-target]')) return;
+  presetLibrary.pendingTarget = event.target.value;
+  renderPresetLibrary();
 });
 $('#presetLibrary').addEventListener('click', async (event) => {
   const choice = event.target.closest('[data-preset-id]');
   if (choice) {
     try {
       presetLibrary.selected = await api(`/admin/presets/read?id=${encodeURIComponent(choice.dataset.presetId)}`);
+      if (presetLibrary.pendingTarget && presetLibrary.component !== presetLibrary.pendingTarget) presetLibrary.pendingTarget = '';
       renderPresetLibrary();
     } catch (error) { toast(error.message, true); }
     return;
@@ -755,7 +876,9 @@ $('#presetLibrary').addEventListener('click', async (event) => {
   const target = $('[data-preset-target]', $('#presetLibrary')).value;
   const mode = $('[data-preset-mode]', $('#presetLibrary')).value;
   const current = currentHarness()?.components?.[target];
-  if (mode === 'replace' && current && !confirm(`Replace the current ${HARNESS_COMPONENTS.find((component) => component.key === target)?.label || target}?`)) return;
+  if (isMismatched(presetLibrary.selected, target)
+    && !confirm(`This preset was classified as ${componentLabel(presetLibrary.selected.suggestedComponent)}, not ${componentLabel(target)}. Apply it to ${componentLabel(target)} anyway?`)) return;
+  if (mode === 'replace' && current && !confirm(`Replace the current ${componentLabel(target)}?`)) return;
   try {
     const result = await api('/admin/harness/preset', { method: 'POST', body: JSON.stringify({ harnessId: activeHarnessId, id: presetLibrary.selected.id, target, mode }) });
     const index = state.harnesses.findIndex((harness) => harness.id === result.harness.id);
@@ -776,14 +899,86 @@ function valueForField(harness, field) {
   return harness.components?.[field.scope]?.[field.key];
 }
 
+// ── field guidance ────────────────────────────────────────────────────
+
+/**
+ * One shared tooltip node. It auto-dismisses after three seconds so a tooltip
+ * can never sit on top of the field it is describing, and any new trigger
+ * cancels the pending timer rather than racing it.
+ */
+const TOOLTIP_MS = 3000;
+let tooltipTimer;
+
+function tooltipNode() {
+  let node = $('#fieldTooltip');
+  if (!node) {
+    node = document.createElement('div');
+    node.id = 'fieldTooltip';
+    node.className = 'field-tooltip';
+    node.setAttribute('role', 'tooltip');
+    document.body.append(node);
+  }
+  return node;
+}
+
+function hideTooltip() {
+  clearTimeout(tooltipTimer);
+  const node = $('#fieldTooltip');
+  if (node) node.classList.remove('visible');
+}
+
+function showTooltip(trigger) {
+  const guide = HARNESS_GUIDE[trigger.dataset.tip];
+  if (!guide) return;
+  const node = tooltipNode();
+  node.innerHTML = `<strong>${esc(trigger.dataset.tipLabel || '')}</strong><p>${esc(guide.detail)}</p>`
+    + (guide.belongs ? `<p class="tip-belongs"><span>Belongs here</span> ${esc(guide.belongs)}</p>` : '')
+    + (guide.avoid ? `<p class="tip-avoid"><span>Not here</span> ${esc(guide.avoid)}</p>` : '');
+  node.classList.add('visible');
+
+  // Measure only once visible, then keep the box inside the viewport.
+  const box = trigger.getBoundingClientRect();
+  const left = Math.min(Math.max(8, box.left), window.innerWidth - node.offsetWidth - 8);
+  const below = box.bottom + 8;
+  const fitsBelow = below + node.offsetHeight < window.innerHeight - 8;
+  node.style.left = `${left}px`;
+  node.style.top = `${fitsBelow ? below : Math.max(8, box.top - node.offsetHeight - 8)}px`;
+
+  clearTimeout(tooltipTimer);
+  tooltipTimer = setTimeout(hideTooltip, TOOLTIP_MS);
+}
+
+document.addEventListener('click', (event) => {
+  const trigger = event.target.closest('[data-tip]');
+  if (trigger) { event.preventDefault(); showTooltip(trigger); return; }
+  hideTooltip();
+});
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape') hideTooltip(); });
+window.addEventListener('scroll', hideTooltip, { passive: true, capture: true });
+
+/** Label row: name, an info trigger, and for text components, preset access. */
+function fieldHeader(field) {
+  const guide = HARNESS_GUIDE[field.key];
+  if (!guide) return `<label>${esc(field.label)}</label>`;
+  const browse = field.scope === 'components' && field.type === 'textarea'
+    ? `<button class="harness-presets" type="button" data-browse-presets="${esc(field.key)}">Browse presets</button>`
+    : '';
+  return `<div class="harness-field-head">
+      <label>${esc(field.label)}</label>
+      <button class="field-tip" type="button" aria-label="About ${esc(field.label)}" data-tip="${esc(field.key)}" data-tip-label="${esc(field.label)}">i</button>
+      ${browse}
+    </div>
+    <p class="harness-guide">${esc(guide.guide)}</p>`;
+}
+
 function renderHarnessField(harness, field) {
   const value = valueForField(harness, field);
   const attributes = `data-harness-edit data-component-scope="${esc(field.scope)}" data-component-key="${esc(field.key)}"`;
-  if (field.type === 'textarea') return `<div class="harness-field"><label>${esc(field.label)}</label><textarea ${attributes}>${esc(value || '')}</textarea></div>`;
+  if (field.type === 'textarea') return `<div class="harness-field">${fieldHeader(field)}<textarea ${attributes}>${esc(value || '')}</textarea></div>`;
   if (field.type === 'select') {
-    return `<div class="harness-field"><label>${esc(field.label)}</label><select class="input" ${attributes}>${field.options.map((option) => `<option value="${esc(option)}" ${(value === option || (value === null && option === '')) ? 'selected' : ''}>${esc(option || '(provider default)')}</option>`).join('')}</select></div>`;
+    return `<div class="harness-field">${fieldHeader(field)}<select class="input" ${attributes}>${field.options.map((option) => `<option value="${esc(option)}" ${(value === option || (value === null && option === '')) ? 'selected' : ''}>${esc(option || '(provider default)')}</option>`).join('')}</select></div>`;
   }
-  return `<div class="harness-field"><label>${esc(field.label)}</label><input class="input" type="${field.type === 'number' ? 'number' : 'text'}" ${attributes} value="${value !== null && value !== undefined ? esc(value) : ''}" ${field.min !== undefined ? `min="${field.min}"` : ''} ${field.max !== undefined ? `max="${field.max}"` : ''} ${field.step ? `step="${field.step}"` : ''} placeholder="provider default" /></div>`;
+  return `<div class="harness-field">${fieldHeader(field)}<input class="input" type="${field.type === 'number' ? 'number' : 'text'}" ${attributes} value="${value !== null && value !== undefined ? esc(value) : ''}" ${field.min !== undefined ? `min="${field.min}"` : ''} ${field.max !== undefined ? `max="${field.max}"` : ''} ${field.step ? `step="${field.step}"` : ''} placeholder="provider default" /></div>`;
 }
 
 function renderHarness() {
@@ -798,7 +993,7 @@ function renderHarness() {
     let bodyHtml;
     if (section.type === 'json') {
       const help = section.key === 'headers' ? '<p class="form-hint">Optional HTTP metadata only. Credential, cookie, host, and connection headers are blocked.</p>' : '';
-      bodyHtml = `<div class="harness-field"><label>${esc(section.label)} (JSON object)</label><textarea class="mono" data-harness-edit data-component-json="${esc(section.key)}" rows="4">${esc(JSON.stringify(harness.components?.[section.key] || {}, null, 2))}</textarea>${help}</div>`;
+      bodyHtml = `<div class="harness-field">${fieldHeader({ ...section, label: `${section.label} (JSON object)` })}<textarea class="mono" data-harness-edit data-component-json="${esc(section.key)}" rows="4">${esc(JSON.stringify(harness.components?.[section.key] || {}, null, 2))}</textarea>${help}</div>`;
     } else {
       bodyHtml = section.fields.map((field) => renderHarnessField(harness, field)).join('');
     }
@@ -1122,6 +1317,68 @@ $('#btnShortcutDismiss').addEventListener('click', async (e) => {
   }
 });
 
+// Presentation-only preferences shared with the operator page. These never
+// affect routing, credentials or security behavior.
+async function loadOperatorAppearance() {
+  try {
+    const res = await fetch('/admin/operator/settings');
+    if (!res.ok) return;
+    const settings = await res.json();
+    const ui = settings.ui || {};
+    const theme = ui.theme === 'system'
+      ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+      : (ui.theme || 'dark');
+    document.documentElement.dataset.operatorTheme = theme;
+    document.documentElement.dataset.operatorFont = ui.fontFamily || 'system';
+    document.documentElement.dataset.operatorDensity = ui.density || 'comfortable';
+    document.documentElement.style.setProperty('--operator-scale', Number(ui.fontScale) || 1);
+    renderRetentionNotice(settings.logs || {});
+  } catch {
+    // Appearance is optional; a failure must never block the dashboard.
+  }
+}
+
+/**
+ * Keep the Logs privacy callout honest.
+ *
+ * The retention switches live on Chat -> Settings, so this page cannot state a
+ * fixed guarantee: claiming "never stored" while raw capture is on would be a
+ * lie told by the very screen you would check. The notice is rebuilt from the
+ * live policy, and the loudest true statement wins.
+ */
+function renderRetentionNotice(logs) {
+  const node = $('#logRetentionNotice');
+  const callout = $('#logRetentionCallout');
+  if (!node || !callout) return;
+  const on = [];
+  if (logs.rawPrompts) on.push('prompts');
+  if (logs.rawResponses) on.push('responses');
+  if (logs.rawToolBodies) on.push('tool bodies');
+
+  if (logs.credentials || on.length) {
+    const parts = [];
+    if (on.length) parts.push(`Raw ${on.join(', ')} are being stored verbatim`);
+    if (logs.credentials) parts.push('presented local keys are being stored in clear text');
+    node.innerHTML = `<strong>Retention is on.</strong> ${parts.join(', and ')}. `
+      + 'Anyone who can read the journal file can read that content. Turn it off under '
+      + '<span class="mono">Chat &rarr; Settings</span> and clear the log when you are done.';
+    callout.classList.remove('hidden');
+    return;
+  }
+
+  // Nothing raw is being written, so the page says nothing at all: the standing
+  // "metadata only" reassurance was removed by request, and only the warning
+  // above earns screen space.
+  node.innerHTML = '';
+  callout.classList.add('hidden');
+}
+
+// app.js and operator.js are separate ES modules, so the Settings tab reaches
+// this through one deliberate global rather than a circular import. Saving a
+// policy has to be able to correct the Logs page immediately: a stale "never
+// stored" line is exactly the claim this function exists to prevent.
+globalThis.renderRetentionNotice = renderRetentionNotice;
+
 // ── boot ─────────────────────────────────────────────────────────────
 
 async function refresh({ preserveHarnessEditor = false } = {}) {
@@ -1135,19 +1392,13 @@ async function refresh({ preserveHarnessEditor = false } = {}) {
     .map((localKey) => `<option value="${esc(localKey.id)}">${esc(localKey.name)} · ${esc(localKey.id)}</option>`)
     .join('');
   $('#logLocalKey').value = selectedLogKey;
-  const journal = state.journal;
-  if (journal) {
-    const storage = journal.persistence === 'persistent'
-      ? `Persistent local journal · ${number(journal.maxEntries)} records · ${number(Math.round(journal.rotateAtBytes / (1024 * 1024)))} MiB rotation · ${number(journal.predecessors)} predecessor. Start with --no-log for memory-only mode or --log <path> to choose a private file.`
-      : `Memory-only journal · ${number(journal.maxEntries)} records · erased when SubChain restarts. Restart without --no-log to restore private local persistence.`;
-    $('#logStorage').textContent = storage;
-  }
   if (!preserveHarnessEditor) renderHarness();
   renderSnippet();
   $('#serverDot').style.color = 'var(--success)';
   $('#serverStatus').textContent = `running · ${state.stats.uptimeSeconds}s`;
 }
 
+loadOperatorAppearance();
 refresh().catch((err) => {
   $('#serverDot').style.color = 'var(--danger)';
   $('#serverStatus').textContent = 'unreachable';

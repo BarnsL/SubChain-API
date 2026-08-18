@@ -46,6 +46,8 @@ import {
   summarizeInput,
   summarizeJsonOutput,
 } from './request-journal.js';
+import { createSubChainOperator } from './operator-subchain.js';
+import { createOperatorHttp } from './operator-http.js';
 
 const WEBUI_DIR = IS_SEA
   ? path.join(EXE_DIR, 'webui')
@@ -214,6 +216,38 @@ export function createServer(runtime, quota, {
     return { ...scopeForLocalKey(runtime.routing, localKey, providerModels), settings: runtime.settings };
   };
 
+  // The operator's own reasoning runs through SubChain's default local key, so
+  // control-plane traffic obeys the same routing, quota and cooldown rules as
+  // any other client instead of holding a privileged provider path.
+  const selfComplete = async (messages, signal) => {
+    const localKey = runtime.routing.localKeys.find((key) => key.id === 'default') || runtime.routing.localKeys[0];
+    if (!localKey) {
+      throw Object.assign(new Error('No local routing key is available for self intelligence.'), { statusCode: 409 });
+    }
+    const scope = { ...scopeFor(localKey), harnessHeaders: {} };
+    const result = await dispatch(scope, cooldowns, quota, {
+      model: 'auto',
+      messages,
+      stream: false,
+      max_tokens: 2200,
+    }, { signal, managedTransports });
+    const raw = await result.response.text();
+    const payloadText = result.link.transform ? transformResponse(raw, result.link) : raw;
+    const payload = JSON.parse(payloadText);
+    return payload?.choices?.[0]?.message?.content || JSON.stringify(payload);
+  };
+  const operator = createSubChainOperator({
+    runtime,
+    quota,
+    journal,
+    statusStore: providerStatusStore,
+    probeService: providerProbeService,
+    managedTransports,
+    managedAvailable,
+    selfComplete,
+  });
+  const handleOperator = createOperatorHttp(operator);
+
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
     const audit = adminAuditFor(req.method, url.pathname);
@@ -288,6 +322,11 @@ export function createServer(runtime, quota, {
         if (['POST', 'PUT', 'PATCH'].includes(req.method)
           && !/^application\/json(?:\s*;|$)/i.test(String(req.headers['content-type'] || ''))) {
           return fail(res, 415, 'Administrative mutations require application/json');
+        }
+        // Confirmation-gated control plane. It reuses the loopback, cross-site
+        // and content-type gates already enforced for this whole admin block.
+        if (url.pathname.startsWith('/admin/operator/')) {
+          if (await handleOperator(req, res, url)) return;
         }
         if (url.pathname === '/admin/logs' && req.method === 'GET') {
           const page = journal.query(queryOptions(url, url.searchParams.get('localKey') || undefined));
@@ -550,9 +589,18 @@ export function createServer(runtime, quota, {
     }
 
     if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
+      // Read once per request so input, output and auth capture all agree on
+      // the same policy even if the host flips a switch mid-flight.
+      const logPolicy = operator.runtime.readSettings().logs;
+      // Retained only on request: the most common reason to want it is a
+      // rejected key, where the useful question is what the caller actually
+      // presented rather than what it should have presented.
+      const presentedCredential = logPolicy.credentials === true
+        ? String(req.headers.authorization || '').slice(0, 600) || undefined
+        : undefined;
       const localKey = authenticateLocalKey(runtime, bearerFrom(req));
       if (!localKey) {
-        journalRecord.auth = { result: 'rejected', ownership: 'subchain-local-key' };
+        journalRecord.auth = { result: 'rejected', ownership: 'subchain-local-key', credential: presentedCredential };
         journalRecord.request = { inputSummary: 'unavailable-before-auth' };
         journalRecord.error = { code: 'invalid_api_key', category: 'authentication', httpStatus: 401, retryable: false };
         journalRecord.outcome = 'auth-rejected';
@@ -560,7 +608,7 @@ export function createServer(runtime, quota, {
           code: 'invalid_api_key',
         }, { cors: true });
       }
-      journalRecord.auth = { result: 'accepted', ownership: 'subchain-local-key' };
+      journalRecord.auth = { result: 'accepted', ownership: 'subchain-local-key', credential: presentedCredential };
       journalRecord.localKeyId = localKey.id;
       journalRecord.target = localKey.target;
       journalRecord.harnessId = localKey.harnessId || 'default';
@@ -572,7 +620,7 @@ export function createServer(runtime, quota, {
         return fail(res, err.statusCode || 400, err.message, {}, { cors: true });
       }
       if (!Array.isArray(body.messages) || !body.messages.length) {
-        journalRecord.request = { model: body.model, stream: body.stream === true, inputSummary: summarizeInput(body) };
+        journalRecord.request = { model: body.model, stream: body.stream === true, inputSummary: summarizeInput(body, logPolicy) };
         journalRecord.error = { code: 'invalid_messages', category: 'request', httpStatus: 400, retryable: false };
         return fail(res, 400, '"messages" must be a non-empty array', {}, { cors: true });
       }
@@ -581,7 +629,7 @@ export function createServer(runtime, quota, {
       const harnessLibrary = loadHarnessLibrary(harnessFile);
       const selectedHarness = harnessById(harnessLibrary, localKey.harnessId);
       body = applyHarnessConfig(body, selectedHarness);
-      const inputSummary = summarizeInput(body);
+      const inputSummary = summarizeInput(body, logPolicy);
       journalRecord.request = { model: inputSummary.model, stream: inputSummary.stream, inputSummary };
       const scope = { ...scopeFor(localKey), harnessHeaders: selectedHarness.components.headers };
 
@@ -623,7 +671,7 @@ export function createServer(runtime, quota, {
 
         stats.served++;
         if (body.stream) {
-          const meter = createSseMeter();
+          const meter = createSseMeter(logPolicy);
           res.writeHead(200, {
             ...served,
             'Content-Type': 'text/event-stream',
@@ -659,7 +707,7 @@ export function createServer(runtime, quota, {
           quota.recordUsage(provider, usage);
           providerStatusStore?.recordUsage(provider, usage);
         }
-        const outputSummary = summarizeJsonOutput(payload);
+        const outputSummary = summarizeJsonOutput(payload, logPolicy);
         const quotaState = quota.get(provider)?.quotas?.[0];
         journalRecord.result = {
           ...outputSummary,

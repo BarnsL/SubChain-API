@@ -40,6 +40,15 @@ categorized errors, and metadata-only administrative events. It never stores
 prompt or response text. See [docs/REQUEST-JOURNAL.md](docs/REQUEST-JOURNAL.md)
 for its security boundary, retention, and API contract.
 
+The **Chat** page, last in the sidebar, adds a local control plane:
+a deterministic Doctor, a security analysis over the same sanitized journal,
+provider setup help, and a chat operator that can *propose* routing, chain,
+provider and presentation changes. Proposals are inert. Every mutation needs a
+separate human confirmation against a one-time action id, and the model never
+sees credentials, prompts or completions. See
+[docs/CONTROL-PLANE-SECURITY.md](docs/CONTROL-PLANE-SECURITY.md) and
+[docs/CONTROL-PLANE-AGENT.md](docs/CONTROL-PLANE-AGENT.md).
+
 ## Connect an app
 
 Set the app's base URL to the local endpoint and use one of your local keys.
@@ -91,6 +100,12 @@ API keys remain a separate account because API Platform billing and ChatGPT
 subscription limits are different. Read the standardized provider instructions
 in [docs/provider-access](docs/provider-access/README.md).
 
+Alongside the subscription lanes, SubChain carries ordinary API lanes for
+OpenRouter, Groq and DeepSeek, a Dario lane for using a Claude Pro/Max subscription
+through a local [Dario](https://github.com/askalf/dario) instance, and a
+key-optional lane for a local OpenAI-compatible server such as Ollama. See
+[docs/DARIO-INTEGRATION.md](docs/DARIO-INTEGRATION.md).
+
 To enroll a missing OpenAI Codex account, select **Connect ChatGPT
 subscription** on its Providers card. Open the official verification page shown
 by the card and enter its one-time code there. Codex stores and refreshes the
@@ -110,6 +125,14 @@ output style, behavioral mode, persona, generation defaults, infrastructure
 settings, model aliases, and safe metadata. Background dashboard refreshes do
 not close expanded Harness sections, and the browser remembers each section's
 state per Harness.
+
+Every component carries an inline guide and an **i** tooltip that adds detail
+plus explicit *belongs here* / *not here* notes and dismisses itself after three
+seconds. Each instruction component also has a **Browse presets** action that
+opens the imported library already filtered to that component, and applying a
+preset to a component it was not classified for raises an inline warning and a
+second confirmation rather than being silently accepted. See
+[docs/HARNESS.md](docs/HARNESS.md) for the component reference.
 
 ## Presets
 
@@ -139,6 +162,10 @@ component in replace or append mode. See [docs/PRESETS.md](docs/PRESETS.md).
   operation or `--log <path>` for a different private location.
 - `npm run audit:public` scans the staged release for known credential and
   machine-path indicators before publishing.
+- Operator routes are loopback-only, JSON-only, same-origin-checked, and model
+  proposals execute only through a one-time confirmation id with a strict tool
+  allowlist. Confirmed minor repairs are restricted to presentation files and
+  roll back automatically if `node --check` or `npm test` fails.
 
 Read [SECURITY.md](SECURITY.md) before exposing the endpoint outside the local
 machine. The default host is loopback and is the supported configuration.

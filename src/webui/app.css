@@ -438,10 +438,24 @@ pre .c { color: #858d98; }
 .log-title-actions { display: flex; gap: 8px; }
 .log-privacy { margin-bottom: 18px; }
 .log-storage { margin-top: 7px; color: var(--muted-foreground); font-size: 12px; }
-.log-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 18px; }
+
+/* Static cooling legend under the Overview cooling table. */
+.cooling-legend { margin-top: 14px; padding: 16px 18px; }
+.cooling-legend h3 { margin: 0; }
+.cooling-legend > p { color: var(--muted-foreground); font-size: 12.5px; margin: 4px 0 12px; }
+.cooling-legend-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px 20px;
+  margin: 0;
+}
+.cooling-legend-list div { min-width: 0; }
+.cooling-legend-list dt { color: var(--foreground); font-size: 12px; font-weight: 600; }
+.cooling-legend-list dd { color: var(--muted-foreground); font-size: 12px; line-height: 1.45; margin: 2px 0 0; }
+.log-summary { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); margin-bottom: 18px; }
 .log-filters {
   display: grid;
-  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
   padding: 14px;
   margin-bottom: 10px;
@@ -523,7 +537,7 @@ pre .c { color: #858d98; }
 .log-record[open] .log-chevron { transform: rotate(180deg); }
 .log-detail {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px 24px;
   padding: 16px 18px 18px;
   border-top: 1px solid var(--border);
@@ -581,8 +595,6 @@ pre .c { color: #858d98; }
   .provider-actions .btn { flex: 1; }
   .subscription-code { margin-left: 0; }
   .log-title-row { align-items: center; }
-  .log-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .log-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .log-table-head { display: none; }
   .log-record-summary {
     grid-template-columns: minmax(0, 1.4fr) minmax(92px, .8fr) 20px;
@@ -609,7 +621,223 @@ pre .c { color: #858d98; }
   .log-title-row { align-items: flex-start; }
   .log-title-actions { flex-direction: column; }
   .log-title-row .btn { padding: 0 10px; }
-  .log-summary { grid-template-columns: 1fr; }
-  .log-filters { grid-template-columns: 1fr; }
   .log-toolbar { align-items: flex-start; flex-direction: column; gap: 4px; }
 }
+
+/* Operator appearance preferences. These only restyle presentation; they never
+   affect routing or security behavior. */
+:root { --operator-scale: 1; }
+:root[data-operator-theme="light"] {
+  color-scheme: light;
+  --background: #f5f7fb;
+  --foreground: #171a22;
+  --card: #ffffff;
+  --card-hover: #f2f4f8;
+  --muted: #eef1f6;
+  --muted-foreground: #687184;
+  --border: #d9dee8;
+  --input: #ffffff;
+  --primary-foreground: #ffffff;
+  --primary-soft: rgba(20, 184, 166, 0.10);
+}
+:root[data-operator-font="sans"] body { font-family: Arial, Helvetica, sans-serif; }
+:root[data-operator-font="serif"] body { font-family: Georgia, serif; }
+:root[data-operator-font="mono"] body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+:root body { font-size: calc(14px * var(--operator-scale)); }
+:root[data-operator-density="compact"] .card { padding: 14px; }
+:root[data-operator-density="spacious"] .card { padding: 24px; }
+
+/* ── Chat ────────────────────────────────────────────────────────────── */
+
+.op-panel { display: none; }
+.op-panel.active { display: block; }
+.op-panel > .card + .card { margin-top: 16px; }
+
+.op-chat { display: flex; flex-direction: column; gap: 12px; }
+
+.op-messages {
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+  min-height: 220px; max-height: 46vh; overflow-y: auto;
+}
+.op-bubble {
+  max-width: min(680px, 88%); padding: 10px 13px; border-radius: 10px;
+  font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.op-bubble.assistant { background: var(--muted); color: var(--foreground); border: 1px solid var(--border); }
+.op-bubble.user { align-self: flex-end; background: var(--primary); color: var(--primary-foreground); }
+
+.op-pending {
+  border: 1px solid rgba(224, 163, 62, 0.35); background: rgba(224, 163, 62, 0.08);
+  border-radius: 9px; padding: 13px 15px; font-size: 13px;
+}
+.op-pending + .op-pending { margin-top: 8px; }
+.op-pending p { color: var(--muted-foreground); margin: 4px 0 10px; }
+.op-pending-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+
+.op-links { display: flex; flex-wrap: wrap; gap: 12px; font-size: 13px; }
+.op-links a { color: var(--primary); }
+
+.op-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.op-compose { display: flex; gap: 8px; align-items: flex-start; }
+.op-compose textarea.input { flex: 1; resize: vertical; min-height: 42px; font: inherit; font-size: 13px; }
+.op-compose input.input { flex: 1; }
+
+.op-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.op-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 12px 0; }
+.op-fields label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted-foreground); }
+
+.op-check { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 10px 0; }
+.op-check input { width: 15px; height: 15px; accent-color: var(--primary); }
+
+.op-stat-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.op-stat-message { font-size: 13px; margin: 6px 0 4px; }
+.op-finding + .op-finding { margin-top: 10px; }
+.op-finding p { font-size: 13px; color: var(--muted-foreground); margin: 6px 0; }
+.op-provider .provider-head { padding-bottom: 12px; }
+.op-provider + .op-provider { margin-top: 12px; }
+
+@media (max-width: 880px) {
+  .op-compose { flex-direction: column; }
+  .op-compose .btn { width: 100%; }
+}
+
+/* ── Shared contract: text always fits inside its card ───────────────────────
+   CANONICAL BLOCK. Byte-identical in FreeChain, SubChain and VisionChain.
+   Change it in one repo and copy it verbatim into the other two; do not drop it
+   from one dashboard without dropping it from all three. Rationale and the
+   review checklist live in docs/CARD-TEXT-CONTAINMENT.md.
+
+   Nearly every string these dashboards paint is a length we do not control:
+   provider ids, model names, base URLs, request ids, access-key chips and raw
+   upstream error text. Containing them per component means every new card
+   re-litigates the same bug, so containment is structural instead.
+
+   Three mechanics do the work:
+
+     1. `min-width: 0` — flex and grid children default to `min-width: auto`,
+        which refuses to shrink below their own content. That default, not the
+        text itself, is the usual reason one long model id pushes a card past
+        its track and puts a horizontal scrollbar on the whole page.
+     2. `overflow-wrap: anywhere` — breaks strings that contain no spaces (URLs,
+        keys, base64 request ids) instead of letting them run past the card
+        edge. It is an inherited property, so setting it on the card carries it
+        to every descendant without repeating it per element.
+     3. Content that genuinely cannot wrap — <pre>, tables — scrolls inside its
+        own box, so the page itself never scrolls sideways.
+
+   Every selector is wrapped in `:where()` so the whole block carries zero
+   specificity. It is a safety net for markup nobody thought to constrain, and
+   any explicit rule elsewhere in the file — a deliberate `white-space: nowrap`
+   badge, a real `min-width` on a control — still wins.
+
+   The container list is the union across all three dashboards, so the block
+   stays copy-paste identical. Class names absent from a given repo simply
+   never match. Verify changes at 1280px and at 380px. */
+
+/* 1. Cards shrink to their track and break unbreakable strings. */
+:where(.card, .stat, .callout, .slot, .provider, .source-card, .status-card,
+       .chain-card, .chain-link, .chain-row, .local-key-card, .provider-setup-card,
+       .log-record, .log-detail, .log-cell, .preset-preview, .preset-result,
+       .harness-workspace, .vision-preview, .chat-box, .result-box, .finding,
+       .pending, .bubble, .messages, .keychip, .model-chip, .subscription-code,
+       .op-panel, .op-chat, .op-messages, .op-bubble, .op-pending, .op-finding,
+       .op-log, .op-provider) {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+/* 2. Text-bearing descendants may shrink below their intrinsic width. Elements
+      are enumerated rather than matched with `*` so icons keep their size (4),
+      and `button` is omitted so action labels are never squashed. Form controls
+      are included: their default intrinsic width overflows a narrow card. */
+:where(.card, .stat, .callout, .slot, .provider, .source-card, .status-card,
+       .chain-card, .chain-link, .chain-row, .local-key-card, .provider-setup-card,
+       .log-record, .log-detail, .log-cell, .preset-preview, .preset-result,
+       .harness-workspace, .vision-preview, .chat-box, .result-box, .finding,
+       .pending, .bubble, .messages, .keychip, .model-chip, .subscription-code,
+       .op-panel, .op-chat, .op-messages, .op-bubble, .op-pending, .op-finding,
+       .op-log, .op-provider) :where(
+  div, section, article, header, footer, form, fieldset, details, summary,
+  p, span, strong, em, b, i, small, label, a, code, kbd, samp, time,
+  ul, ol, li, dl, dt, dd,
+  h1, h2, h3, h4, h5, h6,
+  input, select, textarea
+) {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* 3. Content that genuinely cannot wrap scrolls within its own box, so the page
+      never gains a horizontal scrollbar. */
+:where(.table-wrap, .log-table, .log-detail, .log-grid) { overflow-x: auto; }
+:where(pre, code, samp) { max-width: 100%; }
+:where(pre, table) { overflow-x: auto; }
+
+/* 4. Icons and media carry no text to wrap, and letting them shrink squashes
+      them instead of the string beside them. */
+:where(svg, img, video, canvas) { max-width: 100%; }
+:where(.card, .stat, .callout, .slot, .provider, .source-card, .status-card,
+       .chain-card, .chain-link, .chain-row, .log-record, .bubble,
+       .op-bubble, .op-panel) :where(svg, img, video, canvas) {
+  flex-shrink: 0;
+}
+
+/* ── Harness field guidance ──────────────────────────────────────────── */
+
+.harness-field-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.harness-field-head label { margin: 0; }
+
+.field-tip {
+  display: inline-grid; place-items: center; flex: none;
+  width: 16px; height: 16px; padding: 0;
+  border: 1px solid var(--border); border-radius: 50%;
+  background: var(--muted); color: var(--muted-foreground);
+  font: 600 10px/1 ui-sans-serif, system-ui, sans-serif; font-style: italic;
+  cursor: help;
+}
+.field-tip:hover, .field-tip:focus-visible { color: var(--foreground); border-color: var(--primary); }
+
+.harness-presets {
+  margin-left: auto; padding: 0; border: 0; background: none;
+  color: var(--primary); font: inherit; font-size: 12px; cursor: pointer;
+}
+.harness-presets:hover { text-decoration: underline; }
+
+.harness-guide { margin: 3px 0 7px; color: var(--muted-foreground); font-size: 12px; line-height: 1.45; }
+
+/* Auto-dismissing tooltip. Positioned from script, so only appearance here. */
+.field-tooltip {
+  position: fixed; z-index: 60; max-width: min(360px, calc(100vw - 16px));
+  padding: 11px 13px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--card); color: var(--foreground);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  font-size: 12.5px; line-height: 1.5;
+  opacity: 0; visibility: hidden; transform: translateY(-4px);
+  transition: opacity .13s ease, transform .13s ease, visibility .13s;
+}
+.field-tooltip.visible { opacity: 1; visibility: visible; transform: translateY(0); }
+.field-tooltip strong { display: block; margin-bottom: 5px; font-size: 13px; }
+.field-tooltip p { margin: 0 0 6px; color: var(--muted-foreground); }
+.field-tooltip p:last-child { margin-bottom: 0; }
+.field-tooltip .tip-belongs span, .field-tooltip .tip-avoid span {
+  display: inline-block; margin-right: 5px; padding: 1px 6px; border-radius: 4px;
+  font-size: 10px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase;
+}
+.field-tooltip .tip-belongs span { background: rgba(63, 191, 127, .16); color: var(--success); }
+.field-tooltip .tip-avoid span { background: rgba(240, 97, 109, .14); color: var(--danger); }
+
+@media (prefers-reduced-motion: reduce) {
+  .field-tooltip { transition: none; }
+}
+
+/* Applying a preset to a component it was not classified for. */
+.preset-mismatch {
+  margin-top: 12px; padding: 12px 14px; border-radius: 8px;
+  border: 1px solid rgba(224, 163, 62, .35); background: rgba(224, 163, 62, .08);
+  color: #e8cb98; font-size: 12.5px; line-height: 1.5;
+}
+.preset-mismatch strong { color: var(--foreground); }
+.preset-mismatch p { margin: 5px 0 0; }
+.preset-mismatch-hint { color: var(--muted-foreground); }

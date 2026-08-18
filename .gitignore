@@ -16,3 +16,7 @@ dist/
 .serena/
 skill-observations/
 /cross-cutting-principles.md
+
+# Operator control-plane local state
+.subchain-operator.json
+.chain-operator-backups/

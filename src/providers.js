@@ -52,6 +52,87 @@ const BASE_PROVIDERS = {
       'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-5.3-codex',
     ],
   },
+  openrouter: {
+    label: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    authType: 'api-key',
+    transport: 'http',
+    transform: null,
+    contextWindow: 1_000_000,
+    vendorEnv: ['OPENROUTER_API_KEY'],
+    subscriptionUrl: 'https://openrouter.ai/settings/keys',
+    jurisdiction: 'United States',
+    fallbackModels: [],
+  },
+  groq: {
+    label: 'Groq',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    authType: 'api-key',
+    transport: 'http',
+    transform: null,
+    contextWindow: 262_144,
+    vendorEnv: ['GROQ_API_KEY'],
+    subscriptionUrl: 'https://console.groq.com/keys',
+    jurisdiction: 'United States',
+    fallbackModels: [],
+  },
+  // Dario is deliberately modelled as a local provider seam. Dario owns its own
+  // Claude subscription, OAuth and wire fidelity; SubChain consumes only its
+  // stable OpenAI-compatible interface and never copies its session material.
+  dario: {
+    label: 'Dario local subscription proxy',
+    baseUrl: 'http://127.0.0.1:3456/v1',
+    authType: 'local-fixed',
+    transport: 'http',
+    transform: null,
+    contextWindow: 1_000_000,
+    vendorEnv: ['DARIO_API_KEY'],
+    accountSlots: false,
+    subscriptionUrl: 'https://github.com/askalf/dario',
+    jurisdiction: 'Local',
+    // `[1m]` is dario's client-side long-context label, not a distinct upstream
+    // model: its proxy strips the tag and rides the `context-1m-2025-08-07`
+    // beta on the request instead. dario derives one `[1m]` variant per family
+    // via longContextEligible(), which excludes haiku — real Claude Code never
+    // offers a 1M haiku — so the three below are the complete set. Without them
+    // this entry advertised contextWindow: 1_000_000 while listing no model
+    // that could actually reach it.
+    fallbackModels: [
+      'claude-fable-5', 'claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5',
+      'claude-fable-5[1m]', 'claude-opus-5[1m]', 'claude-sonnet-5[1m]',
+    ],
+  },
+  // Dario's `local:` backend is an OpenAI-compatible server on the machine —
+  // Ollama by default, hence port 11434. llama.cpp, LM Studio and vLLM expose
+  // the same shape; point baseUrl at whichever one is running.
+  local: {
+    label: 'Local OpenAI-compatible server (Ollama and similar)',
+    baseUrl: 'http://127.0.0.1:11434/v1',
+    authType: 'none',
+    transport: 'http',
+    transform: null,
+    contextWindow: 262_144,
+    vendorEnv: ['LOCAL_API_KEY'],
+    accountSlots: false,
+    keyOptional: true,
+    subscriptionUrl: null,
+    jurisdiction: 'Local',
+    fallbackModels: [],
+  },
+  // DeepSeek's API is OpenAI-compatible and versioned at /v1, though the docs
+  // quote the bare host. Models float: the base ids track the latest build.
+  deepseek: {
+    label: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com/v1',
+    authType: 'api-key',
+    transport: 'http',
+    transform: null,
+    contextWindow: 128_000,
+    vendorEnv: ['DEEPSEEK_API_KEY'],
+    subscriptionUrl: 'https://platform.deepseek.com/api_keys',
+    jurisdiction: 'China',
+    fallbackModels: ['deepseek-v4-pro', 'deepseek-v4-flash'],
+  },
   kimi: {
     label: 'Kimi Code',
     baseUrl: 'https://api.kimi.com/coding/v1',
