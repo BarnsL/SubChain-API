@@ -10,3 +10,9 @@ node_modules/
 dist/
 *.pem
 *.key
+
+# Local agent/editor tooling artifacts (machine-specific, not part of the project)
+.claude/
+.serena/
+skill-observations/
+/cross-cutting-principles.md

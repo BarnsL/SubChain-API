@@ -41,6 +41,35 @@ Copy the intended key again from Local keys. Keys are independent: rotating or
 deleting one does not change the others. Assigning a destination or Harness
 does not rotate the key.
 
+Use the dashboard **Logs** page to correlate the 401 by request ID, app label,
+session label, and timestamp. An invalid key is rejected before body parsing,
+so its journal record contains `unavailable-before-auth`, no input summary, and
+no local-key owner. It appears only in the loopback admin view, not in any
+key-scoped `GET /v1/logs` response.
+
+## Request journal is empty or incomplete
+
+Confirm the launcher did not use `--no-log`. That flag intentionally keeps only
+the current process's bounded in-memory records. The default persistent journal
+lives in private SubChain app data, not in the repository. A custom `--log`
+path must be writable by the SubChain process.
+
+Token totals are marked `exact` when the provider supplies usage and
+`estimated` otherwise. A missing provider attempt or output summary can be
+normal for authentication and request-validation failures because SubChain
+records the failure at the earliest safe point. Streaming requests are counted
+incrementally and finalized when the stream closes.
+
+If the JSONL file ends with a torn or malformed line after a crash, SubChain
+skips that line and loads the remaining valid records. Rotation retains the
+active file plus one `.1` predecessor. Persistence failure does not stop
+routing; inspect the launcher console for the local filesystem error.
+
+The log APIs intentionally return no prompt text, assistant text, credentials,
+authorization headers, raw provider bodies, or full IP addresses. Put only
+non-sensitive correlation labels in `X-SubChain-App` and
+`X-SubChain-Session-Id`.
+
 ## Model is missing
 
 Use **Ping** on the provider card to refresh its live model list. `/v1/models`

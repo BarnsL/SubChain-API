@@ -51,6 +51,12 @@ test('admin state exposes routing metadata but never local tokens', async () => 
     const payload = await state.json();
     assert.equal(payload.localKeys[0].id, 'default');
     assert.equal(JSON.stringify(payload).includes('default-token'), false);
+    assert.deepEqual(payload.journal, {
+      persistence: 'memory-only',
+      maxEntries: 500,
+      rotateAtBytes: 5 * 1024 * 1024,
+      predecessors: 1,
+    });
 
     const created = await fetch(`http://127.0.0.1:${port}/admin/local-keys`, {
       method: 'POST',

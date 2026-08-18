@@ -36,33 +36,37 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.8 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.8-1.7"/></svg>
         Chain
       </button>
+      <button class="nav-item" data-page="logs">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4h14M5 9h14M5 14h9M5 19h6"/><circle cx="18" cy="17" r="3"/><path d="m20.2 19.2 1.8 1.8"/></svg>
+        Logs
+      </button>
       <button class="nav-item" data-page="harness">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
         Harness
       </button>
 
       <div class="nav-label">Subscriptions</div>
-      <a class="nav-item" href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer">
+      <a class="nav-item nav-subscription-link" href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l2 2"/></svg>
         Anthropic
       </a>
-      <a class="nav-item" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">
+      <a class="nav-item nav-subscription-link" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 6-6 6 6 6M16 6l6 6-6 6"/></svg>
         OpenAI Codex
       </a>
-      <a class="nav-item" href="https://kimi.moonshot.cn/" target="_blank" rel="noopener noreferrer">
+      <a class="nav-item nav-subscription-link" href="https://kimi.moonshot.cn/" target="_blank" rel="noopener noreferrer">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>
         Kimi Code
       </a>
-      <a class="nav-item" href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer">
+      <a class="nav-item nav-subscription-link" href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10h-10Z"/><path d="M12 2v10"/></svg>
         Google Gemini
       </a>
-      <a class="nav-item" href="https://open.bigmodel.cn/" target="_blank" rel="noopener noreferrer">
+      <a class="nav-item nav-subscription-link" href="https://open.bigmodel.cn/" target="_blank" rel="noopener noreferrer">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8h8v8H8z"/></svg>
         Zhipu AI
       </a>
-      <a class="nav-item" href="https://console.sakana.ai/" target="_blank" rel="noopener noreferrer">
+      <a class="nav-item nav-subscription-link" href="https://console.sakana.ai/" target="_blank" rel="noopener noreferrer">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 3 14h8l-1 8 10-12h-8l1-8Z"/></svg>
         Sakana AI
       </a>
@@ -185,6 +189,64 @@
         </div>
 
         <div id="chainList" class="stack"></div>
+      </section>
+
+      <!-- ── Logs ─────────────────────────────────────────────────── -->
+      <section class="page" id="page-logs">
+        <div class="log-title-row">
+          <div>
+            <h1>Logs</h1>
+            <p class="lede">A loopback-only operator journal across local keys, routing targets, Harnesses, providers, transports, usage, errors, and cooling.</p>
+          </div>
+          <div class="log-title-actions">
+            <button class="btn" id="btnLogsPause" type="button" aria-pressed="false">Pause live</button>
+            <button class="btn" id="btnLogsRefresh" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        <div class="callout log-privacy">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+          <div><strong>Metadata only.</strong> Prompts, responses, Harness bodies, preset bodies, tools, credentials, and private paths are never stored. Exact provider usage is labelled separately from four-character estimated usage. App and session values are client-reported.
+            <div class="log-storage" id="logStorage">Checking journal storage… Use <span class="mono">--no-log</span> for memory only.</div>
+          </div>
+        </div>
+
+        <div class="stat-grid log-summary" id="logSummary" aria-label="Log summary">
+          <div class="stat log-skeleton"><div class="skeleton-line short"></div><div class="skeleton-line value"></div></div>
+          <div class="stat log-skeleton"><div class="skeleton-line short"></div><div class="skeleton-line value"></div></div>
+          <div class="stat log-skeleton"><div class="skeleton-line short"></div><div class="skeleton-line value"></div></div>
+          <div class="stat log-skeleton"><div class="skeleton-line short"></div><div class="skeleton-line value"></div></div>
+        </div>
+
+        <form class="log-filters" id="logFilters" aria-label="Operator log filters">
+          <label><span>Outcome or HTTP</span><select class="input" name="status"><option value="">All outcomes</option><option value="served">Served</option><option value="auth-rejected">Authentication rejected</option><option value="failed">Failed</option><option value="401">HTTP 401</option><option value="429">HTTP 429</option><option value="502">HTTP 502</option></select></label>
+          <label><span>Local key</span><select class="input" name="localKey" id="logLocalKey"><option value="">All local keys</option></select></label>
+          <label><span>Target</span><input class="input" name="target" placeholder="chain or provider ID" autocomplete="off" /></label>
+          <label><span>Harness</span><input class="input" name="harness" placeholder="default" autocomplete="off" /></label>
+          <label><span>Transport</span><select class="input" name="transport"><option value="">All transports</option><option value="http">HTTP</option><option value="codex-app-server">Codex app server</option><option value="antigravity-cli">Antigravity CLI</option></select></label>
+          <label><span>Provider</span><input class="input" name="provider" placeholder="openai-codex" autocomplete="off" /></label>
+          <label><span>App</span><input class="input" name="app" placeholder="Nous Man" autocomplete="off" /></label>
+          <label><span>Route</span><input class="input" name="route" placeholder="chat/completions" autocomplete="off" /></label>
+          <label><span>Search metadata</span><input class="input" name="q" placeholder="request, session, model, code" autocomplete="off" /></label>
+          <button class="btn btn-ghost" id="btnLogsClear" type="button">Clear filters</button>
+        </form>
+
+        <div class="log-toolbar" aria-live="polite">
+          <div id="logStatus" class="log-status">Loading the private journal…</div>
+          <div class="log-legend"><span><i class="usage-dot exact"></i> exact</span><span><i class="usage-dot estimated"></i> estimated</span></div>
+        </div>
+        <div id="logError" class="callout warn hidden" role="alert">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+          <div><strong>Logs could not refresh.</strong> <span id="logErrorMessage">The last safe snapshot remains visible.</span></div>
+        </div>
+        <div class="log-table" id="logRows" aria-live="polite" aria-busy="true"><div class="log-loading" aria-label="Loading log records"><div class="skeleton-row"></div><div class="skeleton-row"></div><div class="skeleton-row"></div></div></div>
+        <div class="card log-empty hidden" id="logEmpty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 4h12v16H6z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+          <div><strong>No matching records.</strong><span>Send a request or loosen the filters. Log reads do not create more records.</span></div>
+        </div>
       </section>
 
       <!-- ── Harness ──────────────────────────────────────────────── -->

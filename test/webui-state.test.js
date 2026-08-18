@@ -1,5 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const module = await import('../src/webui/ui-state.js');
 const { createHarnessExpansionState } = module;
@@ -16,4 +21,36 @@ test('harness expansion state survives dashboard refreshes and reloads', () => {
 
   const reloaded = createHarnessExpansionState(storage);
   assert.equal(reloaded.isExpanded('generation'), true);
+});
+
+test('operator Logs sits between Chain and Harness with scoped routing and privacy states', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'src', 'webui', 'index.html'), 'utf8');
+  const appJs = fs.readFileSync(path.join(ROOT, 'src', 'webui', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(ROOT, 'src', 'webui', 'app.css'), 'utf8');
+
+  assert.match(html, /data-page="chain"[\s\S]*?Chain[\s\S]*?<\/button>\s*<button class="nav-item" data-page="logs"[\s\S]*?Logs[\s\S]*?<\/button>\s*<button class="nav-item" data-page="harness"/);
+  for (const id of ['page-logs', 'logSummary', 'logFilters', 'logStatus', 'logRows', 'logEmpty', 'logError', 'btnLogsRefresh', 'btnLogsPause', 'btnLogsClear', 'logStorage']) {
+    assert.match(html, new RegExp(`id="${id}"`), `missing Logs UI anchor #${id}`);
+  }
+  for (const field of ['localKey', 'target', 'harness', 'transport', 'provider', 'app', 'route', 'status', 'q']) {
+    assert.match(html, new RegExp(`name="${field}"`), `missing operator filter ${field}`);
+  }
+  assert.match(html, /Prompts, responses, Harness bodies, preset bodies, tools, credentials, and private paths are never stored/i);
+  assert.match(html, /exact/i);
+  assert.match(html, /estimated/i);
+  assert.match(html, /--no-log/);
+  assert.match(appJs, /async function refreshLogs/);
+  assert.match(appJs, /journal\.persistence/);
+  assert.match(appJs, /logsPaused/);
+  assert.match(appJs, /data-request-id/);
+  assert.doesNotMatch(appJs, /log-record-summary" aria-label=/);
+  assert.match(appJs, /\/admin\/logs/);
+  assert.match(appJs, /10_000/);
+  assert.match(appJs, /X-SubChain-App/);
+  assert.match(appJs, /X-SubChain-Session-Id/);
+  assert.match(css, /\.log-filters/);
+  assert.match(css, /\.log-record/);
+  assert.match(css, /\.log-detail/);
+  assert.match(css, /\.log-summary\s*\{[\s\S]*repeat\(4,/);
+  assert.match(css, /max-width:\s*880px[\s\S]*\.nav-item\s*\{[\s\S]*width:\s*auto/);
 });

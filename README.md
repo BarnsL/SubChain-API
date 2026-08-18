@@ -34,6 +34,12 @@ and add up to five provider subscriptions to each new chain. The migrated
 Default chain is a compatibility exception: it keeps its existing links but
 cannot grow past five.
 
+The **Logs** page, directly below Chain, provides a privacy-safe request journal
+with aggregate request and token totals, latency, provider attempts, cooling,
+categorized errors, and metadata-only administrative events. It never stores
+prompt or response text. See [docs/REQUEST-JOURNAL.md](docs/REQUEST-JOURNAL.md)
+for its security boundary, retention, and API contract.
+
 ## Connect an app
 
 Set the app's base URL to the local endpoint and use one of your local keys.
@@ -49,6 +55,12 @@ provider's last successful Ping catalog, choosing its first model for `auto`.
 A named model is accepted only if it is inside that key's selected provider or
 chain. Before a provider has a successful Ping catalog, SubChain uses its safe
 provider fallback catalog without changing routing metadata.
+
+An app can add the optional `X-SubChain-App` and `X-SubChain-Session-Id`
+headers for safe correlation. Do not put secrets or prompt text in either
+value. API responses include `X-SubChain-Request-Id`. Authenticated local keys
+can read only their own sanitized records from `GET /v1/logs`; the dashboard
+uses the loopback-only `GET /admin/logs` operator view.
 
 ## Credentials and providers
 
@@ -120,6 +132,11 @@ component in replace or append mode. See [docs/PRESETS.md](docs/PRESETS.md).
 - Local key comparisons use constant-time equality.
 - Admin and key-reveal routes accept loopback peers only.
 - Each local key is scoped before model listing or dispatch.
+- Journal ownership is enforced before filtering, searching, summarizing, or
+  paginating, and log responses are marked `no-store`.
+- Request persistence uses a strict metadata allowlist, bounded memory, private
+  app data, and single-file rotation. Start with `--no-log` for memory-only
+  operation or `--log <path>` for a different private location.
 - `npm run audit:public` scans the staged release for known credential and
   machine-path indicators before publishing.
 

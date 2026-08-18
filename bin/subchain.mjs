@@ -8,13 +8,14 @@ import { createServer } from '../src/server.js';
 import { installWorkerShutdown, isPortListening, providersForStartupProbe, superviseWorker } from '../src/supervisor.js';
 import { QuotaTracker } from '../src/quota.js';
 import { IS_SEA } from '../src/runtime.js';
-import { createSecretStore } from '../src/storage.js';
+import { createSecretStore, resolveDataDir } from '../src/storage.js';
 import { createRoutingRuntime, ensureLocalKey, loadRouting } from '../src/routing.js';
 import { createProviderStatusStore } from '../src/provider-status.js';
 import { createProviderProbeService } from '../src/provider-probes.js';
 import { routingInventory } from '../src/admin.js';
 import { createManagedTransports } from '../src/managed-transports.js';
 import { providerDef } from '../src/providers.js';
+import { RequestJournal } from '../src/request-journal.js';
 
 const argv = IS_SEA ? process.argv.slice(1) : process.argv.slice(2);
 const flag = (name, fallback) => {
@@ -28,7 +29,7 @@ if (has('--help') || has('-h')) {
   console.log(`subchain — subscription-provider failover router
 
   subchain [--port 4854] [--host 127.0.0.1] [--chain <file>] [--verbose]
-           [--allow-network]
+           [--allow-network] [--log <path>] [--no-log]
   subchain --status        show which links have credentials, then exit
 
 Point any OpenAI-compatible client at http://<host>:<port>/v1 and use the
@@ -67,6 +68,8 @@ if (has('--status')) {
 const port = Number(flag('--port', process.env.SUBCHAIN_PORT || 4854));
 const host = flag('--host', process.env.SUBCHAIN_HOST || '127.0.0.1');
 const ui = !has('--no-ui');
+const logPath = path.resolve(flag('--log', path.join(resolveDataDir(), 'logs', 'requests.jsonl')));
+const persistJournal = !has('--no-log');
 const loopbackHost = new Set(['127.0.0.1', '::1', 'localhost']).has(host.toLowerCase());
 if (!loopbackHost && !has('--allow-network')) {
   console.error('subchain: refusing a network host without --allow-network');
@@ -105,6 +108,7 @@ function startWorker() {
     statusStore: providerStatusStore,
     managedProbes: managedTransports.probes,
   });
+  const journal = new RequestJournal({ filePath: logPath, enabled: persistJournal });
 
   const server = createServer(runtime, quota, {
     verbose: has('--verbose'),
@@ -113,6 +117,7 @@ function startWorker() {
     providerProbeService,
     managedTransports,
     managedProviderAvailable: (providerId) => managedTransports.has(providerDef(providerId).transport),
+    journal,
   });
   installWorkerShutdown({ server, managedTransports });
   server.listen(port, host, () => {
@@ -120,6 +125,7 @@ function startWorker() {
     if (ui) console.log(`dashboard    http://${host}:${port}/`);
     console.log(`chain        ${configured.length}/${status.length} links configured (${chainFile})`);
     console.log(`mode         ${runtime.settings.mode}${runtime.settings.mode === 'pinned' ? ` → ${runtime.settings.pinnedProvider}` : ''}`);
+    console.log(persistJournal ? 'journal      persistent (private app data)' : 'journal      memory only (--no-log)');
 
     if (!configured.length) {
       console.log('\nNo provider credentials found. Configure a provider or set an environment override.');

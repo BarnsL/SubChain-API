@@ -4,6 +4,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { resolveKeys } from './config.js';
 import { Cooldowns, dispatch, ChainError } from './chain.js';
@@ -37,6 +38,14 @@ import { shortcutStatus, createShortcut, dismissShortcut } from './shortcut.js';
 import { authenticateLocalKey, rotateLocalKey, scopeForLocalKey, tokenForLocalKey } from './routing.js';
 import { usageFromPayload } from './quota.js';
 import { providerDef } from './providers.js';
+import {
+  RequestJournal,
+  createSseMeter,
+  estimatedUsage,
+  requestMetadata,
+  summarizeInput,
+  summarizeJsonOutput,
+} from './request-journal.js';
 
 const WEBUI_DIR = IS_SEA
   ? path.join(EXE_DIR, 'webui')
@@ -48,6 +57,60 @@ const MIME = {
   '.js': 'text/javascript; charset=utf-8',
   '.svg': 'image/svg+xml',
 };
+
+const PASSIVE_JOURNAL_ROUTES = new Set(['/v1/logs', '/v1/status', '/admin/logs']);
+
+function adminAuditFor(method, pathname) {
+  const exact = new Map([
+    ['GET /admin/access-key', ['local-key-revealed', 'local-key', 'default']],
+    ['POST /admin/access-key/rotate', ['local-key-rotated', 'local-key', 'default']],
+    ['POST /admin/local-keys', ['local-key-created', 'local-key']],
+    ['POST /admin/chains', ['chain-created', 'chain']],
+    ['POST /admin/chain/reorder', ['chain-reordered', 'chain']],
+    ['POST /admin/mode', ['routing-mode-updated', 'routing']],
+    ['POST /admin/threshold', ['quota-threshold-updated', 'quota']],
+    ['POST /admin/harnesses', ['harness-created', 'harness']],
+    ['POST /admin/harness/preset', ['harness-preset-applied', 'harness']],
+    ['POST /admin/harness', ['default-harness-updated', 'harness', 'default']],
+    ['POST /admin/providers/openai-codex/connect', ['subscription-connect-started', 'provider', 'openai-codex']],
+    ['POST /admin/providers/openai-codex/connect/cancel', ['subscription-connect-cancelled', 'provider', 'openai-codex']],
+    ['POST /admin/shortcut/create', ['shortcut-created', 'shortcut']],
+    ['POST /admin/shortcut/dismiss', ['shortcut-dismissed', 'shortcut']],
+  ]).get(`${method} ${pathname}`);
+  if (exact) return { action: exact[0], entityType: exact[1], entityId: exact[2] };
+  const patterns = [
+    [/^GET \/admin\/local-keys\/([a-z0-9-]+)$/, 'local-key-revealed', 'local-key'],
+    [/^POST \/admin\/local-keys\/([a-z0-9-]+)$/, 'local-key-updated', 'local-key'],
+    [/^DELETE \/admin\/local-keys\/([a-z0-9-]+)$/, 'local-key-deleted', 'local-key'],
+    [/^POST \/admin\/local-keys\/([a-z0-9-]+)\/rotate$/, 'local-key-rotated', 'local-key'],
+    [/^POST \/admin\/chains\/([a-z0-9-]+)\/links$/, 'chain-link-added', 'chain'],
+    [/^DELETE \/admin\/chains\/([a-z0-9-]+)\/links\/\d+$/, 'chain-link-deleted', 'chain'],
+    [/^POST \/admin\/harnesses\/([a-z0-9-]+)$/, 'harness-updated', 'harness'],
+    [/^DELETE \/admin\/harnesses\/([a-z0-9-]+)$/, 'harness-deleted', 'harness'],
+    [/^POST \/admin\/providers\/([a-z0-9-]+)\/ping$/, 'provider-pinged', 'provider'],
+    [/^POST \/admin\/providers\/([a-z0-9-]+)$/, 'provider-renamed', 'provider'],
+  ];
+  const route = `${method} ${pathname}`;
+  for (const [pattern, action, entityType] of patterns) {
+    const match = pattern.exec(route);
+    if (match) return { action, entityType, entityId: match[1] };
+  }
+  return null;
+}
+
+const queryOptions = (url, ownerId) => ({
+  limit: url.searchParams.get('limit') || undefined,
+  before: url.searchParams.get('before') || undefined,
+  status: url.searchParams.get('status') || undefined,
+  provider: url.searchParams.get('provider') || undefined,
+  app: url.searchParams.get('app') || undefined,
+  route: url.searchParams.get('route') || undefined,
+  target: url.searchParams.get('target') || undefined,
+  harness: url.searchParams.get('harness') || undefined,
+  transport: url.searchParams.get('transport') || undefined,
+  q: url.searchParams.get('q') || undefined,
+  ownerId,
+});
 
 const json = (res, code, obj, { cors = false } = {}) => {
   const body = JSON.stringify(obj);
@@ -133,6 +196,7 @@ export function createServer(runtime, quota, {
   providerProbeService = null,
   managedTransports = null,
   managedProviderAvailable = () => false,
+  journal = new RequestJournal({ enabled: false }),
 } = {}) {
   const cooldowns = new Cooldowns(runtime.settings.cooldownMs);
   const stats = { served: 0, failed: 0, startedAt: Date.now() };
@@ -152,12 +216,47 @@ export function createServer(runtime, quota, {
 
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
+    const audit = adminAuditFor(req.method, url.pathname);
+    const shouldJournal = req.method !== 'OPTIONS' && (
+      (url.pathname.startsWith('/v1/') && !PASSIVE_JOURNAL_ROUTES.has(url.pathname)) ||
+      Boolean(audit)
+    );
+    const startedMs = Date.now();
+    const journalRecord = shouldJournal ? {
+      id: randomUUID(),
+      startedAt: new Date(startedMs).toISOString(),
+      route: url.pathname,
+      method: req.method,
+      client: requestMetadata(req),
+      ...(audit ? { audit } : {}),
+    } : null;
+    let journalFinalized = false;
+    const finalizeJournal = (overrides = {}) => {
+      if (!journalRecord || journalFinalized) return;
+      journalFinalized = true;
+      const status = overrides.status ?? res.statusCode ?? 500;
+      journal.append({
+        ...journalRecord,
+        ...overrides,
+        status,
+        outcome: overrides.outcome ?? journalRecord.outcome ?? (status >= 500 ? 'failed' : status >= 400 ? 'rejected' : 'served'),
+        completedAt: new Date().toISOString(),
+        durationMs: Date.now() - startedMs,
+      });
+    };
+    if (journalRecord) {
+      res.setHeader('X-SubChain-Request-Id', journalRecord.id);
+      res.once('finish', () => finalizeJournal());
+      res.once('close', () => {
+        if (!res.writableEnded) finalizeJournal({ status: 499, outcome: 'client-disconnected' });
+      });
+    }
 
     if (req.method === 'OPTIONS' && !url.pathname.startsWith('/admin/')) {
       res.writeHead(204, {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers':
-          'Content-Type, Authorization, X-Stainless-Lang, X-Stainless-Package-Version, X-Stainless-OS, X-Stainless-Arch, X-Stainless-Runtime, X-Stainless-Runtime-Version, X-Stainless-Retry-Count, X-Stainless-Timeout, X-Stainless-Helper-Method',
+          'Content-Type, Authorization, X-SubChain-App, X-SubChain-Session-Id, X-Stainless-Lang, X-Stainless-Package-Version, X-Stainless-OS, X-Stainless-Arch, X-Stainless-Runtime, X-Stainless-Runtime-Version, X-Stainless-Retry-Count, X-Stainless-Timeout, X-Stainless-Helper-Method',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       });
       return res.end();
@@ -190,12 +289,23 @@ export function createServer(runtime, quota, {
           && !/^application\/json(?:\s*;|$)/i.test(String(req.headers['content-type'] || ''))) {
           return fail(res, 415, 'Administrative mutations require application/json');
         }
+        if (url.pathname === '/admin/logs' && req.method === 'GET') {
+          const page = journal.query(queryOptions(url, url.searchParams.get('localKey') || undefined));
+          const names = new Map(runtime.routing.localKeys.map((key) => [key.id, key.name]));
+          return json(res, 200, {
+            ...page,
+            items: page.items.map((record) => record.localKeyId
+              ? { ...record, localKeyName: names.get(record.localKeyId) || record.localKeyId }
+              : record),
+          });
+        }
         if (url.pathname === '/admin/state' && req.method === 'GET') {
           const harnessLibrary = loadHarnessLibrary(harnessFile);
           return json(res, 200, {
             ...inventory(),
             cooling: cooldowns.snapshot(),
             quota: quota.snapshot(),
+            journal: journal.status(),
             harness: loadHarness(harnessFile),
             harnesses: harnessLibrary.harnesses,
             stats: { ...stats, uptimeSeconds: Math.round((Date.now() - stats.startedAt) / 1000) },
@@ -241,6 +351,7 @@ export function createServer(runtime, quota, {
             return fail(res, 400, 'Unknown Harness');
           }
           const created = addLocalKey(runtime, { id, name, target, harnessId });
+          if (journalRecord) journalRecord.audit.entityId = created.key.id;
           const { secretRef, ...localKey } = created.key;
           return json(res, 201, { localKey, key: created.token });
         }
@@ -268,7 +379,9 @@ export function createServer(runtime, quota, {
         }
         if (url.pathname === '/admin/chains' && req.method === 'POST') {
           const { id, name, link } = await readJson(req);
-          return json(res, 201, { chain: addChain(runtime, { id, name, link }) });
+          const created = addChain(runtime, { id, name, link });
+          if (journalRecord) journalRecord.audit.entityId = created.id;
+          return json(res, 201, { chain: created });
         }
         const linkMatch = /^\/admin\/chains\/([a-z0-9-]+)\/links$/.exec(url.pathname);
         if (linkMatch && req.method === 'POST') {
@@ -310,6 +423,7 @@ export function createServer(runtime, quota, {
           const input = await readJson(req);
           const library = loadHarnessLibrary(harnessFile);
           const harness = createHarness(library, input);
+          if (journalRecord) journalRecord.audit.entityId = harness.id;
           saveHarnessLibrary(library, harnessFile);
           return json(res, 201, { harness });
         }
@@ -344,6 +458,7 @@ export function createServer(runtime, quota, {
         }
         if (url.pathname === '/admin/harness/preset' && req.method === 'POST') {
           const { harnessId = 'default', id, target = 'operatingInstructions', mode = 'replace' } = await readJson(req);
+          if (journalRecord) journalRecord.audit.entityId = harnessId;
           if (!TEXT_COMPONENTS.includes(target)) return fail(res, 400, 'Preset target is invalid');
           if (!['replace', 'append'].includes(mode)) return fail(res, 400, 'Preset mode is invalid');
           const preset = readPresetEntry({ dataDir: runtime.presetDataDir, id });
@@ -379,18 +494,43 @@ export function createServer(runtime, quota, {
         }
       } catch (err) {
         const code = err.statusCode || 500;
+        if (journalRecord) journalRecord.error = {
+          code: code >= 500 ? 'internal_error' : 'invalid_admin_request',
+          category: code >= 500 ? 'internal' : 'request',
+          httpStatus: code,
+          retryable: code >= 500,
+        };
         return fail(res, code, code >= 500 ? 'Internal server error' : String(err.message || err));
       }
       return fail(res, 404, `No admin route for ${req.method} ${url.pathname}`);
     }
 
-    if (url.pathname === '/v1/models') {
+    if (url.pathname === '/v1/logs' && req.method === 'GET') {
       const localKey = authenticateLocalKey(runtime, bearerFrom(req));
       if (!localKey) {
         return fail(res, 401, 'Invalid API key. Use the access key from the SubChain dashboard.', {
           code: 'invalid_api_key',
         }, { cors: true });
       }
+      res.setHeader('Cache-Control', 'no-store');
+      return json(res, 200, journal.query(queryOptions(url, localKey.id)), { cors: true });
+    }
+
+    if (url.pathname === '/v1/models') {
+      const localKey = authenticateLocalKey(runtime, bearerFrom(req));
+      if (!localKey) {
+        journalRecord.auth = { result: 'rejected', ownership: 'subchain-local-key' };
+        journalRecord.request = { inputSummary: 'unavailable-before-auth' };
+        journalRecord.error = { code: 'invalid_api_key', category: 'authentication', httpStatus: 401, retryable: false };
+        journalRecord.outcome = 'auth-rejected';
+        return fail(res, 401, 'Invalid API key. Use the access key from the SubChain dashboard.', {
+          code: 'invalid_api_key',
+        }, { cors: true });
+      }
+      journalRecord.auth = { result: 'accepted', ownership: 'subchain-local-key' };
+      journalRecord.localKeyId = localKey.id;
+      journalRecord.target = localKey.target;
+      journalRecord.harnessId = localKey.harnessId || 'default';
       const scope = scopeFor(localKey);
       const seen = new Set();
       const data = [{ id: 'auto', object: 'model', owned_by: 'subchain' }];
@@ -412,17 +552,28 @@ export function createServer(runtime, quota, {
     if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
       const localKey = authenticateLocalKey(runtime, bearerFrom(req));
       if (!localKey) {
+        journalRecord.auth = { result: 'rejected', ownership: 'subchain-local-key' };
+        journalRecord.request = { inputSummary: 'unavailable-before-auth' };
+        journalRecord.error = { code: 'invalid_api_key', category: 'authentication', httpStatus: 401, retryable: false };
+        journalRecord.outcome = 'auth-rejected';
         return fail(res, 401, 'Invalid API key. Use the access key from the SubChain dashboard.', {
           code: 'invalid_api_key',
         }, { cors: true });
       }
+      journalRecord.auth = { result: 'accepted', ownership: 'subchain-local-key' };
+      journalRecord.localKeyId = localKey.id;
+      journalRecord.target = localKey.target;
+      journalRecord.harnessId = localKey.harnessId || 'default';
       let body;
       try {
         body = await readJson(req);
       } catch (err) {
+        journalRecord.error = { code: 'invalid_request', category: 'request', httpStatus: err.statusCode || 400, retryable: false };
         return fail(res, err.statusCode || 400, err.message, {}, { cors: true });
       }
       if (!Array.isArray(body.messages) || !body.messages.length) {
+        journalRecord.request = { model: body.model, stream: body.stream === true, inputSummary: summarizeInput(body) };
+        journalRecord.error = { code: 'invalid_messages', category: 'request', httpStatus: 400, retryable: false };
         return fail(res, 400, '"messages" must be a non-empty array', {}, { cors: true });
       }
 
@@ -430,6 +581,8 @@ export function createServer(runtime, quota, {
       const harnessLibrary = loadHarnessLibrary(harnessFile);
       const selectedHarness = harnessById(harnessLibrary, localKey.harnessId);
       body = applyHarnessConfig(body, selectedHarness);
+      const inputSummary = summarizeInput(body);
+      journalRecord.request = { model: inputSummary.model, stream: inputSummary.stream, inputSummary };
       const scope = { ...scopeFor(localKey), harnessHeaders: selectedHarness.components.headers };
 
       const abort = new AbortController();
@@ -449,6 +602,14 @@ export function createServer(runtime, quota, {
             }
           },
         });
+        journalRecord.attempts = attempts;
+        journalRecord.served = { provider, model: link.model, keyIndex, transport: link.transport };
+        journalRecord.transport = link.transport;
+        const cooling = cooldowns.snapshot();
+        journalRecord.cooling = {
+          count: cooling.length,
+          candidates: cooling.map(({ id, secondsRemaining }) => ({ id, secondsRemaining })),
+        };
 
         const served = {
           'X-SubChain-Provider': provider,
@@ -457,11 +618,12 @@ export function createServer(runtime, quota, {
           'X-SubChain-Attempts': String(attempts.length),
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Expose-Headers':
-            'X-SubChain-Provider, X-SubChain-Model, X-SubChain-Key-Index, X-SubChain-Attempts',
+            'X-SubChain-Provider, X-SubChain-Model, X-SubChain-Key-Index, X-SubChain-Attempts, X-SubChain-Request-Id',
         };
 
         stats.served++;
         if (body.stream) {
+          const meter = createSseMeter();
           res.writeHead(200, {
             ...served,
             'Content-Type': 'text/event-stream',
@@ -476,14 +638,17 @@ export function createServer(runtime, quota, {
               const text = decoder.decode(chunk, { stream: true });
               const transformed = transformStreamChunk(text, link);
               if (transformed) {
+                meter.push(Buffer.from(transformed));
                 if (!res.write(transformed)) await new Promise((r) => res.once('drain', r));
               }
             }
           } else {
             for await (const chunk of response.body) {
+              meter.push(chunk);
               if (!res.write(chunk)) await new Promise((r) => res.once('drain', r));
             }
           }
+          journalRecord.result = meter.finish(inputSummary.inputChars);
           return res.end();
         }
 
@@ -494,6 +659,23 @@ export function createServer(runtime, quota, {
           quota.recordUsage(provider, usage);
           providerStatusStore?.recordUsage(provider, usage);
         }
+        const outputSummary = summarizeJsonOutput(payload);
+        const quotaState = quota.get(provider)?.quotas?.[0];
+        journalRecord.result = {
+          ...outputSummary,
+          usage: usage ? {
+            inputTokens: usage.prompt_tokens,
+            outputTokens: usage.completion_tokens,
+            totalTokens: usage.total_tokens,
+            source: 'exact',
+          } : estimatedUsage(inputSummary.inputChars, outputSummary.outputChars),
+          quota: quotaState ? {
+            family: quotaState.id,
+            remaining: quotaState.remaining,
+            limit: quotaState.limit,
+            resetsAt: quotaState.resetsAt ? new Date(quotaState.resetsAt).toISOString() : undefined,
+          } : undefined,
+        };
         res.writeHead(200, {
           ...served,
           'Content-Type': 'application/json',
@@ -504,9 +686,24 @@ export function createServer(runtime, quota, {
         if (abort.signal.aborted) return;
         stats.failed++;
         if (err instanceof ChainError) {
+          journalRecord.attempts = err.attempts;
+          const providerStatus = Number.parseInt(String(err.attempts.at(-1)?.detail || ''), 10);
+          const cooling = cooldowns.snapshot();
+          journalRecord.cooling = {
+            count: cooling.length,
+            candidates: cooling.map(({ id, secondsRemaining }) => ({ id, secondsRemaining })),
+          };
+          journalRecord.error = {
+            code: 'chain_failed',
+            category: 'provider',
+            httpStatus: 502,
+            providerStatus: Number.isFinite(providerStatus) ? providerStatus : undefined,
+            retryable: true,
+          };
           return fail(res, 502, err.message, { attempts: err.attempts }, { cors: true });
         }
         console.error('[subchain] unexpected error:', err);
+        journalRecord.error = { code: 'internal_error', category: 'internal', httpStatus: 500, retryable: true };
         return fail(res, 500, 'Internal server error', {}, { cors: true });
       }
     }
