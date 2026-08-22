@@ -499,7 +499,7 @@ pre .c { color: #858d98; }
 .log-table-head,
 .log-record-summary {
   display: grid;
-  grid-template-columns: minmax(150px, 1.15fr) minmax(108px, .8fr) minmax(110px, .8fr) minmax(180px, 1.4fr) minmax(125px, .9fr) 80px 94px 20px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, .8fr) minmax(0, .8fr) minmax(0, 1.4fr) minmax(0, .9fr) 80px 94px 20px;
   gap: 12px;
   align-items: center;
 }
@@ -739,7 +739,7 @@ pre .c { color: #858d98; }
 :where(.card, .stat, .callout, .slot, .provider, .source-card, .status-card,
        .chain-card, .chain-link, .chain-row, .local-key-card, .provider-setup-card,
        .log-record, .log-detail, .log-cell, .preset-preview, .preset-result,
-       .harness-workspace, .vision-preview, .chat-box, .result-box, .finding,
+       .harness-workspace, .harness-preview, .vision-preview, .chat-box, .result-box, .finding,
        .pending, .bubble, .messages, .keychip, .model-chip, .subscription-code,
        .op-panel, .op-chat, .op-messages, .op-bubble, .op-pending, .op-finding,
        .op-log, .op-provider) {
@@ -755,7 +755,7 @@ pre .c { color: #858d98; }
 :where(.card, .stat, .callout, .slot, .provider, .source-card, .status-card,
        .chain-card, .chain-link, .chain-row, .local-key-card, .provider-setup-card,
        .log-record, .log-detail, .log-cell, .preset-preview, .preset-result,
-       .harness-workspace, .vision-preview, .chat-box, .result-box, .finding,
+       .harness-workspace, .harness-preview, .vision-preview, .chat-box, .result-box, .finding,
        .pending, .bubble, .messages, .keychip, .model-chip, .subscription-code,
        .op-panel, .op-chat, .op-messages, .op-bubble, .op-pending, .op-finding,
        .op-log, .op-provider) :where(
